@@ -1,0 +1,973 @@
+diff --git a/launcher/app/build.gradle b/launcher/app/build.gradle
+index 4579341..37f15f7 100644
+--- a/launcher/app/build.gradle
++++ b/launcher/app/build.gradle
+@@ -10,8 +10,8 @@ android {
+         applicationId 'com.gathin.tvhome'
+         minSdk 26
+         targetSdk 34
+-        versionCode 4
+-        versionName '2.3'
++        versionCode 9
++        versionName '2.3-solat5'
+     }
+ 
+     buildTypes {
+diff --git a/launcher/app/src/main/java/com/gathin/tvhome/AppAdapter.java b/launcher/app/src/main/java/com/gathin/tvhome/AppAdapter.java
+index 58c41c3..d3b0564 100644
+--- a/launcher/app/src/main/java/com/gathin/tvhome/AppAdapter.java
++++ b/launcher/app/src/main/java/com/gathin/tvhome/AppAdapter.java
+@@ -130,6 +130,9 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
+     /** The order someone arranged the tiles in, by key (see {@link #keyAt}); empty until they do. */
+     private final List<String> arranged = new ArrayList<>();
+     private static final String ORDER_PREFS = "tiles", ORDER_KEY = "order";
++    /** Apps hidden from the remote (hold OK, then Hide from Home), by package; kept apart from hidden_apps. */
++    private final Set<String> userHidden = new java.util.LinkedHashSet<>();
++    private static final String HIDDEN_KEY = "hidden";
+     /** Rebind payload: only whether the tile's name shows, which depends on being in the dock. */
+     private static final Object DOCK_CHANGED = new Object();
+ 
+@@ -146,6 +149,58 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
+         setHasStableIds(true);
+         String saved = ctx.getSharedPreferences(ORDER_PREFS, Context.MODE_PRIVATE).getString(ORDER_KEY, "");
+         if (!saved.isEmpty()) arranged.addAll(Arrays.asList(saved.split("\n")));
++        String gone = ctx.getSharedPreferences(ORDER_PREFS, Context.MODE_PRIVATE).getString(HIDDEN_KEY, "");
++        if (!gone.isEmpty()) userHidden.addAll(Arrays.asList(gone.split("\n")));
++    }
++
++    // ---- hiding apps from the remote ---------------------------------------------------------------
++
++    /** Whether the tile can be hidden: an ordinary app, and never the last one (its menu leads back). */
++    boolean canHide(int position) {
++        if (position < 0 || position >= items.size() || items.get(position).kind != Entry.APP) return false;
++        int apps = 0;
++        for (Entry e : items) if (e.kind != Entry.HOME_SETTINGS) apps++;
++        return apps > 1;
++    }
++
++    /**
++     * Hides the app at {@code position}: its tile goes now, and it stays gone across restarts. The
++     * order is kept without it, so showing it again puts it at the end of the grid.
++     */
++    boolean hide(int position) {
++        if (!canHide(position)) return false;
++        Entry e = items.get(position);
++        if (arranged.isEmpty()) {
++            for (Entry x : items) if (x.kind != Entry.HOME_SETTINGS) arranged.add(x.component.flattenToShortString());
++        }
++        arranged.remove(e.component.flattenToShortString());
++        userHidden.add(e.pkg);
++        saveOrderAndHidden();
++        items.remove(position);
++        notifyItemRemoved(position);
++        // The tile that slid from the grid into the dock's last slot hides its name.
++        if (position < dockSize && dockSize - 1 < items.size()) notifyItemChanged(dockSize - 1, DOCK_CHANGED);
++        builtFrom = null;
++        return true;
++    }
++
++    /** Shows a hidden app again; the next reload puts it at the end of the grid. */
++    void unhide(String pkg) {
++        if (!userHidden.remove(pkg)) return;
++        saveOrderAndHidden();
++        builtFrom = null;
++    }
++
++    /** Hidden packages, in the order they were hidden. */
++    List<String> userHiddenApps() {
++        return new ArrayList<>(userHidden);
++    }
++
++    private void saveOrderAndHidden() {
++        ctx.getSharedPreferences(ORDER_PREFS, Context.MODE_PRIVATE).edit()
++                .putString(ORDER_KEY, android.text.TextUtils.join("\n", arranged))
++                .putString(HIDDEN_KEY, android.text.TextUtils.join("\n", userHidden))
++                .apply();
+     }
+ 
+     /**
+@@ -208,7 +263,7 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
+         for (ResolveInfo ri : found) {
+             if (ri.activityInfo == null) continue;
+             String pkg = ri.activityInfo.packageName;
+-            if (pkg.equals(ctx.getPackageName()) || hidden.contains(pkg)) continue;
++            if (pkg.equals(ctx.getPackageName()) || hidden.contains(pkg) || userHidden.contains(pkg)) continue;
+             ComponentName component = new ComponentName(pkg, ri.activityInfo.name);
+             Cards.Card card = cardByPkg.get(pkg);
+             if (card != null && !card.component.equals(component)) continue;   // the card stands in for this tile
+diff --git a/launcher/app/src/main/java/com/gathin/tvhome/Config.java b/launcher/app/src/main/java/com/gathin/tvhome/Config.java
+index c6e55a9..5723f25 100644
+--- a/launcher/app/src/main/java/com/gathin/tvhome/Config.java
++++ b/launcher/app/src/main/java/com/gathin/tvhome/Config.java
+@@ -163,7 +163,7 @@ final class Config {
+             }
+             Collections.sort(wallpapers);
+         }
+-        int wallpaperMinutes = json != null ? integer(json, "wallpaper_minutes", 30, 0, 1440) : 30;
++        int wallpaperMinutes = json != null ? integer(json, "wallpaper_minutes", 60, 0, 1440) : 60;
+         int wallpaperSeconds = json != null ? integer(json, "wallpaper_seconds", 0, 5, 86400) : 0;
+         long wallpaperIntervalMs = wallpaperSeconds > 0 ? wallpaperSeconds * 1000L : wallpaperMinutes * 60_000L;
+         // On unless a theme says otherwise: a fresh install shows places with nothing to set up.
+diff --git a/launcher/app/src/main/java/com/gathin/tvhome/MainActivity.java b/launcher/app/src/main/java/com/gathin/tvhome/MainActivity.java
+index 3cd391e..f315578 100644
+--- a/launcher/app/src/main/java/com/gathin/tvhome/MainActivity.java
++++ b/launcher/app/src/main/java/com/gathin/tvhome/MainActivity.java
+@@ -128,6 +128,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+     private View btnInputs;
+     private TextView btnWifi;
+     private TextView shamsiDate;
++    private TextView prayerCountdown, hijriDate;
++    private android.widget.LinearLayout prayerRow;
++    private final TextView[] prayerLabels = new TextView[5];
++    private android.graphics.Typeface prayerFont;
++    private static final String PRAYER_WEIGHT = "'wght' 500";
++    private static final String PRAYER_NEXT_WEIGHT = "'wght' 700";
++    private static final int PRAYER_COLOR = 0xE0FFFFFF;
++    private PrayerTimes prayer;
+     private boolean shamsi;
+     private String vpnApp;
+     private SpringAnimation springX, springY;
+@@ -174,6 +182,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+     /** Decodes the next picture off the main thread, so a switch never stutters the D-pad animations. */
+     private final java.util.concurrent.ExecutorService wallDecoder = java.util.concurrent.Executors.newSingleThreadExecutor();
+     private long wallShownAt;
++    /** Wall-clock time the current picture appeared, for changes on the clock (e.g. every hour at :00). */
++    private long wallShownAtWall;
+     private android.widget.ImageView wallView;
+     private android.graphics.Bitmap wallBitmap;
+     /** Settings kept for the places refresh, which runs after onCreate. */
+@@ -231,8 +241,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+         @Override
+         public void run() {
+             updateShamsiDate();
++            updatePrayer();
+             updateWifiLabel();
+             refreshPlacesIfDue();
++            // After standby the hourly timer can wake late: if the clock passed a change, change now.
++            if (clockAligned() && wallpapers.size() >= 2 && wallShownAtWall > 0
++                    && slot(System.currentTimeMillis()) > slot(wallShownAtWall)) {
++                handler.removeCallbacks(wallTick);
++                handler.post(wallTick);
++            }
+             handler.postDelayed(this, MINUTE_MS);
+         }
+     };
+@@ -310,9 +327,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+             dateLine.getPaint().getTextBounds("O", 0, 1, cap);
+             float capsAtTop = ClockDream.capInset(clock, "0") - ClockDream.capInset(amPm, "AM");
+             float foot = amPm.getTop() + capsAtTop + amPm.getBaseline();
+-            float dateTop = dateBlock.getTop() + dateBlock.getTranslationY() + dateLine.getTop() + dateLine.getBaseline() + cap.top;
++            float dateTop = dateBlock.getTop() + dateBlock.getTranslationY() + ((View) dateLine.getParent()).getTop()
++                    + dateLine.getTop() + dateLine.getBaseline() + cap.top;
+             amPm.setTranslationY(Math.round(capsAtTop + (foot + dateTop) / 2f - foot));
+         });
++        prayerRow = findViewById(R.id.prayerRow);
++        prayerCountdown = findViewById(R.id.prayerCountdown);
++        buildPrayerRow();
++        hijriDate = findViewById(R.id.hijriDate);
++        prayer = new PrayerTimes(this);
++        updatePrayer();
+         vpnApp = cfg.vpnApp;
+         moduleCards = cfg.moduleCards;
+         hiddenApps = new HashSet<>(cfg.hiddenApps);
+@@ -559,6 +583,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+         int next = (prefs.getInt("index", -1) + 1) % wallpapers.size();
+         prefs.edit().putInt("index", next).apply();
+         wallShownAt = android.os.SystemClock.elapsedRealtime();
++        wallShownAtWall = System.currentTimeMillis();
+         final File file = wallpapers.get(next);
+         // On a cold start, name the place straight away: waiting for the decode showed the app's name
+         // at full size and shrank it a moment later. After that the name changes with the picture,
+@@ -586,10 +611,32 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+         @Override
+         public void run() {
+             if (wallpapers.size() >= 2) showNextWallpaper(true);
+-            handler.postDelayed(this, wallpaperIntervalMs);
++            handler.postDelayed(this, clockAligned() ? untilNextBoundary(System.currentTimeMillis()) : wallpaperIntervalMs);
+         }
+     };
+ 
++    private static final long DAY_MS = 24 * 60 * 60_000L;
++
++    /**
++     * Intervals of a minute or more that divide a day evenly change on the clock instead of counting
++     * from when Home opened: hourly at :00, every 30 minutes at :00 and :30, and so on.
++     */
++    private boolean clockAligned() {
++        return wallpaperIntervalMs >= 60_000L && DAY_MS % wallpaperIntervalMs == 0;
++    }
++
++    /** Index of the interval slot this moment falls in, counted in local time. */
++    private long slot(long wallMs) {
++        long local = wallMs + java.util.TimeZone.getDefault().getOffset(wallMs);
++        return Math.floorDiv(local, wallpaperIntervalMs);
++    }
++
++    /** Milliseconds until the next slot starts, plus a moment so the tick lands inside it. */
++    private long untilNextBoundary(long wallMs) {
++        long local = wallMs + java.util.TimeZone.getDefault().getOffset(wallMs);
++        return wallpaperIntervalMs - Math.floorMod(local, wallpaperIntervalMs) + 500;
++    }
++
+     /** Fetches the week's places in the background, then switches the rotation to them. */
+     private void refreshPlacesIfDue() {
+         if (!placesMode || placesRefreshRunning || !PlaceWallpapers.due(this)) return;
+@@ -620,9 +667,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+         refreshPlacesIfDue();
+         handler.removeCallbacks(wallTick);
+         if (wallpapers.size() < 2 || wallpaperIntervalMs <= 0) return;
+-        long waited = android.os.SystemClock.elapsedRealtime() - wallShownAt;
+         // A picture that fell due while you were in an app waits a few seconds: decoding, blurring
+         // and fading it the moment you come back competed with Home for the TV's slow CPU.
++        if (clockAligned()) {
++            long now = System.currentTimeMillis();
++            boolean missed = wallShownAtWall > 0 && slot(now) > slot(wallShownAtWall);
++            handler.postDelayed(wallTick, missed ? RETURN_SETTLE_MS : Math.max(RETURN_SETTLE_MS, untilNextBoundary(now)));
++            return;
++        }
++        long waited = android.os.SystemClock.elapsedRealtime() - wallShownAt;
+         handler.postDelayed(wallTick, Math.max(RETURN_SETTLE_MS, wallpaperIntervalMs - waited));
+     }
+ 
+@@ -669,6 +722,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+         resuming = true;
+         reloadApps(true);
+         updateShamsiDate();
++        updatePrayer();
+         updateWifiLabel();
+         updateInputsButton();
+         startWallpaperRotation();
+@@ -1277,8 +1331,22 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+                 closeMenu(true);
+             }, R.drawable.ic_move, getString(R.string.tile_move), -1, () -> startMove(key));
+         }
++        if (adapter.canHide(position)) {
++            addInputRow(rows, () -> {
++                glider.hideNow();
++                gliderOnPill = false;
++                closeMenu(true);
++            }, R.drawable.ic_hide, getString(R.string.tile_hide), -1, () -> hideTile(key));
++        }
+         addInputRow(rows, () -> closeMenu(false), R.drawable.ic_info, getString(R.string.tile_app_info), -1,
+                 () -> adapter.openAppInfo(adapter.positionOf(key)));
++        final int hiddenCount = adapter.userHiddenApps().size();
++        if (hiddenCount > 0) {
++            addInputRow(rows, () -> closeMenu(true), R.drawable.ic_hidden,
++                    getString(R.string.tile_hidden_apps, hiddenCount), -1,
++                    // After this menu has faded, so the two never overlap.
++                    () -> handler.postDelayed(() -> showHiddenApps(key), reducedMotion ? 100 : 180));
++        }
+         panel.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+         int width = Math.max((int) (190 * density), panel.getMeasuredWidth());
+         // Under the app when there is room; over it in the dock, which sits near the bottom.
+@@ -1290,6 +1358,75 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+         return true;
+     }
+ 
++    /** Most hidden apps listed at once: the menu does not scroll, and eight rows fit any screen. */
++    private static final int HIDDEN_LIST_MAX = 8;
++
++    /** Hides the app from Home (hold OK, then Hide from Home); focus goes to the app that took its place. */
++    private void hideTile(String key) {
++        int pos = adapter.positionOf(key);
++        if (pos < 0 || !adapter.hide(pos)) return;
++        final int target = Math.min(pos, adapter.getItemCount() - 1);
++        grid.post(() -> focusTile(target));
++    }
++
++    /**
++     * The hidden apps, newest first, in a glass list by the tile the menu came from. OK on one shows it
++     * again at the end of the grid.
++     */
++    private void showHiddenApps(String anchorKey) {
++        if (openMenu != null || movingPos >= 0 || isFinishing()) return;
++        List<String> hiddenPkgs = adapter.userHiddenApps();
++        java.util.Collections.reverse(hiddenPkgs);
++        int pos = adapter.positionOf(anchorKey);
++        RecyclerView.ViewHolder vh = pos >= 0 ? grid.findViewHolderForAdapterPosition(pos) : null;
++        if (vh == null || hiddenPkgs.isEmpty()) return;
++        View card = vh.itemView.findViewById(R.id.card);
++        FrameLayout panel = (FrameLayout) getLayoutInflater().inflate(R.layout.popup_inputs, root, false);
++        LinearLayout rows = panel.findViewById(R.id.rows);
++        android.content.pm.PackageManager pm = getPackageManager();
++        int shown = 0;
++        for (String pkg : hiddenPkgs) {
++            if (shown == HIDDEN_LIST_MAX) break;
++            CharSequence label = pkg;
++            android.graphics.drawable.Drawable icon = null;
++            try {
++                android.content.pm.ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
++                label = pm.getApplicationLabel(ai);
++                icon = pm.getApplicationIcon(ai);
++            } catch (android.content.pm.PackageManager.NameNotFoundException e) {
++                // Uninstalled while hidden: forget it quietly.
++                adapter.unhide(pkg);
++                continue;
++            }
++            addAppRow(rows, () -> closeMenu(true), icon, label.toString(), () -> {
++                adapter.unhide(pkg);
++                reloadApps(false);
++            });
++            shown++;
++        }
++        if (shown == 0) return;
++        panel.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
++        int width = Math.max((int) (220 * density), panel.getMeasuredWidth());
++        panel.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.UNSPECIFIED);
++        card.getLocationInWindow(menuAt);
++        root.getLocationInWindow(menuGliderAt);
++        int below = menuAt[1] - menuGliderAt[1] + card.getHeight() + (int) (18 * density) + panel.getMeasuredHeight();
++        showMenu(panel, rows, card, width, below > root.getHeight() - (int) (24 * density));
++    }
++
++    /** A menu row with an app's own icon (untinted) instead of a symbol. */
++    private void addAppRow(LinearLayout rows, Runnable close, android.graphics.drawable.Drawable icon, String title,
++                           Runnable action) {
++        addInputRow(rows, close, R.drawable.ic_hidden, title, -1, action);
++        View row = rows.getChildAt(rows.getChildCount() - 1);
++        if (icon != null) {
++            ImageView iv = row.findViewById(R.id.icon);
++            iv.setImageTintList(null);
++            iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
++            iv.setImageDrawable(icon);
++        }
++    }
++
+     /** Picks the app up: it wiggles, the arrows carry it, and OK or Back puts it down. */
+     private void startMove(String key) {
+         int pos = adapter.positionOf(key);
+@@ -1458,6 +1595,83 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+ 
+     // ---- top bar ---------------------------------------------------------------------------------
+ 
++    /** Prayer line and Hijri date: fetches the month in the background if needed, then redraws. */
++    private void updatePrayer() {
++        if (prayer == null || !prayer.enabled) {
++            if (prayerRow != null) prayerRow.setVisibility(View.GONE);
++            if (prayerCountdown != null) prayerCountdown.setVisibility(View.GONE);
++            if (hijriDate != null) hijriDate.setVisibility(View.GONE);
++            return;
++        }
++        prayer.refreshIfNeeded(handler, this::showPrayer);
++        showPrayer();
++    }
++
++    /** Five labels with a centred dot in each gap; the gaps share the spare width, so the row is justified. */
++    private void buildPrayerRow() {
++        prayerRow.removeAllViews();
++        android.graphics.Typeface outfit = androidx.core.content.res.ResourcesCompat.getFont(this, R.font.outfit);
++        prayerFont = outfit;
++        for (int i = 0; i < 5; i++) {
++            if (i > 0) {
++                TextView dot = prayerText(outfit, 0xB3FFFFFF);
++                dot.setText("\u2022");
++                dot.setGravity(android.view.Gravity.CENTER);
++                prayerRow.addView(dot, new android.widget.LinearLayout.LayoutParams(0,
++                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
++            }
++            prayerLabels[i] = prayerText(outfit, PRAYER_COLOR);
++            prayerRow.addView(prayerLabels[i], new android.widget.LinearLayout.LayoutParams(
++                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
++        }
++    }
++
++    private TextView prayerText(android.graphics.Typeface font, int color) {
++        TextView t = new TextView(this);
++        t.setTypeface(font);
++        t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f);
++        t.setTextColor(color);
++        t.setLetterSpacing(0.02f);
++        // Outfit is a variable font whose default is thin; a medium weight reads from across the room.
++        t.setFontVariationSettings(PRAYER_WEIGHT);
++        t.setIncludeFontPadding(false);
++        t.setSingleLine(true);
++        t.setFocusable(false);
++        t.setFocusableInTouchMode(false);
++        t.setClickable(false);
++        return t;
++    }
++
++    private void showPrayer() {
++        long now = System.currentTimeMillis();
++        PrayerTimes.Display d = prayer.display(now);
++        if (d != null) {
++            for (int i = 0; i < 5; i++) {
++                boolean next = i == d.next;
++                prayerLabels[i].setText(d.labels[i]);
++                prayerLabels[i].setTextColor(next ? 0xFFFFFFFF : PRAYER_COLOR);
++                prayerLabels[i].setFontVariationSettings(next ? PRAYER_NEXT_WEIGHT : PRAYER_WEIGHT);
++            }
++            prayerRow.setVisibility(View.VISIBLE);
++            if (d.countdown != null) {
++                prayerCountdown.setText(d.countdown);
++                prayerCountdown.setVisibility(View.VISIBLE);
++            } else {
++                prayerCountdown.setVisibility(View.GONE);
++            }
++        } else {
++            prayerRow.setVisibility(View.GONE);
++            prayerCountdown.setVisibility(View.GONE);
++        }
++        String hijri = prayer.hijriToday(now);
++        if (hijri != null) {
++            hijriDate.setText("  \u00B7  " + hijri);
++            hijriDate.setVisibility(View.VISIBLE);
++        } else {
++            hijriDate.setVisibility(View.GONE);
++        }
++    }
++
+     private void updateShamsiDate() {
+         if (shamsi) shamsiDate.setText(Shamsi.today());
+     }
+diff --git a/launcher/app/src/main/java/com/gathin/tvhome/PrayerTimes.java b/launcher/app/src/main/java/com/gathin/tvhome/PrayerTimes.java
+new file mode 100644
+index 0000000..8a27be8
+--- /dev/null
++++ b/launcher/app/src/main/java/com/gathin/tvhome/PrayerTimes.java
+@@ -0,0 +1,401 @@
++package com.gathin.tvhome;
++
++import android.content.Context;
++import android.os.Handler;
++import android.util.Log;
++
++import org.json.JSONArray;
++import org.json.JSONObject;
++
++import java.io.ByteArrayOutputStream;
++import java.io.File;
++import java.io.FileInputStream;
++import java.io.FileOutputStream;
++import java.io.InputStream;
++import java.io.OutputStream;
++import java.net.HttpURLConnection;
++import java.net.URL;
++import java.nio.charset.StandardCharsets;
++import java.text.SimpleDateFormat;
++import java.util.Calendar;
++import java.util.HashMap;
++import java.util.Locale;
++import java.util.Map;
++import java.util.TimeZone;
++
++/**
++ * Malaysian prayer times (JAKIM) for one zone: the five daily prayers in 12-hour time, the next one
++ * highlighted with a countdown, and the Hijri date.
++ *
++ * <p>Read-only on screen: nothing here is focusable, so the remote's navigation is untouched.
++ *
++ * <p>Data: a whole month per request from api.waktusolat.app (JAKIM e-Solat data), with JAKIM's own
++ * e-solat.gov.my as the fallback. The current and the next month are cached in the app's files, so
++ * the line keeps working offline and across the change of month. A failed download is retried after
++ * {@link #RETRY_MS}.
++ */
++final class PrayerTimes {
++
++    private static final String TAG = "TvHome.Prayer";
++    static final String DEFAULT_ZONE = "SGR01";
++    private static final String[] NAMES = {"Subuh", "Zohor", "Asar", "Maghrib", "Isyak"};
++    private static final String[] HIJRI_MONTHS = {"Muharram", "Safar", "Rabiulawal", "Rabiulakhir",
++            "Jamadilawal", "Jamadilakhir", "Rejab", "Syaaban", "Ramadan", "Syawal", "Zulkaedah", "Zulhijjah"};
++    private static final TimeZone MYT = TimeZone.getTimeZone("Asia/Kuala_Lumpur");
++    private static final long RETRY_MS = 30 * 60_000L;
++    private static final int TIMEOUT_MS = 15_000;
++
++    /** One day: its Hijri date ("1448-05-14") and the five prayer times in epoch milliseconds. */
++    static final class Day {
++        final String hijri;
++        final long[] times;
++
++        Day(String hijri, long[] times) {
++            this.hijri = hijri;
++            this.times = times;
++        }
++    }
++
++    private final File dir;
++    final String zone;
++    final boolean enabled;
++    private final Map<String, Day[]> months = new HashMap<>();
++    private volatile boolean fetching;
++    private long lastAttempt;
++
++    PrayerTimes(Context ctx) {
++        dir = new File(ctx.getFilesDir(), "prayer");
++        //noinspection ResultOfMethodCallIgnored
++        dir.mkdirs();
++        // Optional keys in the theme's config.json: "prayer_times": false hides the line,
++        // "prayer_zone": "WLY01" picks another JAKIM zone.
++        String z = DEFAULT_ZONE;
++        boolean on = true;
++        try {
++            File cfg = new File(ctx.getExternalFilesDir(null), Config.FILE_NAME);
++            if (cfg.isFile()) {
++                JSONObject json = new JSONObject(new String(read(new FileInputStream(cfg), 64 * 1024),
++                        StandardCharsets.UTF_8));
++                on = json.optBoolean("prayer_times", true);
++                String fromCfg = json.optString("prayer_zone", "").trim().toUpperCase(Locale.ROOT);
++                if (fromCfg.matches("[A-Z]{3}\\d{2}")) z = fromCfg;
++            }
++        } catch (Exception e) {
++            Log.w(TAG, "config.json not read: " + e);
++        }
++        zone = z;
++        enabled = on;
++    }
++
++    // ---- what the screen shows -------------------------------------------------------------------
++
++    /** What the screen shows: five "Name time" labels, which one is next, and the countdown. */
++    static final class Display {
++        final String[] labels = new String[5];
++        int next = -1;
++        String countdown;
++    }
++
++    /**
++     * The five prayers as "Subuh 5:49 am", the next one in capitals ("ASAR 4:19 PM"), and the
++     * countdown "ASAR in 1h 5min". After Isyak it shows tomorrow's times with Subuh next. Null when
++     * today's times are not known yet.
++     */
++    Display display(long now) {
++        Calendar c = Calendar.getInstance(MYT);
++        c.setTimeInMillis(now);
++        Day shown = day(c);
++        if (shown == null) return null;
++        int next = -1;
++        for (int i = 0; i < 5; i++) {
++            if (shown.times[i] > now) {
++                next = i;
++                break;
++            }
++        }
++        if (next < 0) {
++            Calendar t = (Calendar) c.clone();
++            t.add(Calendar.DAY_OF_MONTH, 1);
++            Day tomorrow = day(t);
++            if (tomorrow != null) {
++                shown = tomorrow;
++                next = 0;
++            }
++        }
++        SimpleDateFormat fmt = new SimpleDateFormat("h:mm a", Locale.ENGLISH);
++        fmt.setTimeZone(MYT);
++        Display d = new Display();
++        d.next = next;
++        for (int i = 0; i < 5; i++) {
++            String label = NAMES[i] + " " + fmt.format(shown.times[i]);
++            d.labels[i] = i == next ? label.toUpperCase(Locale.ENGLISH) : label.toLowerCase(Locale.ENGLISH)
++                    .replaceFirst("^.", NAMES[i].substring(0, 1));
++        }
++        if (next >= 0) {
++            d.countdown = NAMES[next].toUpperCase(Locale.ENGLISH) + " in " + countdown(shown.times[next] - now);
++        }
++        return d;
++    }
++
++    /** "14 Jamadilawal 1448" for today, or null when unknown. */
++    String hijriToday(long now) {
++        Calendar c = Calendar.getInstance(MYT);
++        c.setTimeInMillis(now);
++        Day today = day(c);
++        if (today == null || today.hijri == null) return null;
++        String[] p = today.hijri.split("-");
++        if (p.length != 3) return null;
++        try {
++            int m = Integer.parseInt(p[1]);
++            int d = Integer.parseInt(p[2]);
++            if (m < 1 || m > 12) return null;
++            return d + " " + HIJRI_MONTHS[m - 1] + " " + p[0];
++        } catch (NumberFormatException e) {
++            return null;
++        }
++    }
++
++    /** "25min", "1h 5min", "2h". Rounded up, so it reads "1min" until it is time. */
++    static String countdown(long ms) {
++        long min = Math.max(1, (ms + 59_999) / 60_000);
++        if (min < 60) return min + "min";
++        long h = min / 60;
++        long m = min % 60;
++        return m == 0 ? h + "h" : h + "h " + m + "min";
++    }
++
++    // ---- data ------------------------------------------------------------------------------------
++
++    /**
++     * Downloads the current and the next month if either is missing. Runs in the background; calls
++     * {@code done} on the handler's thread when something new arrived.
++     */
++    void refreshIfNeeded(Handler handler, Runnable done) {
++        if (!enabled || fetching) return;
++        Calendar now = Calendar.getInstance(MYT);
++        Calendar next = (Calendar) now.clone();
++        next.set(Calendar.DAY_OF_MONTH, 1);
++        next.add(Calendar.MONTH, 1);
++        final boolean needNow = month(now) == null;
++        final boolean needNext = month(next) == null;
++        if (!needNow && !needNext) return;
++        long t = android.os.SystemClock.elapsedRealtime();
++        if (lastAttempt != 0 && t - lastAttempt < RETRY_MS) return;
++        lastAttempt = t;
++        fetching = true;
++        final int y1 = now.get(Calendar.YEAR), m1 = now.get(Calendar.MONTH) + 1;
++        final int y2 = next.get(Calendar.YEAR), m2 = next.get(Calendar.MONTH) + 1;
++        new Thread(() -> {
++            boolean got = false;
++            try {
++                if (needNow) got |= fetchAndStore(y1, m1);
++                if (needNext) got |= fetchAndStore(y2, m2);
++            } finally {
++                fetching = false;
++            }
++            if (got) handler.post(done);
++        }, "prayer-times").start();
++    }
++
++    private Day day(Calendar c) {
++        Day[] m = month(c);
++        int d = c.get(Calendar.DAY_OF_MONTH);
++        return m != null && d <= m.length ? m[d - 1] : null;
++    }
++
++    private synchronized Day[] month(Calendar c) {
++        String key = key(c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1);
++        Day[] m = months.get(key);
++        if (m != null) return m;
++        File f = new File(dir, key + ".json");
++        if (!f.isFile()) return null;
++        try {
++            m = parseStored(new String(read(new FileInputStream(f), 256 * 1024), StandardCharsets.UTF_8));
++            months.put(key, m);
++            return m;
++        } catch (Exception e) {
++            Log.w(TAG, "bad cache " + f + ": " + e);
++            //noinspection ResultOfMethodCallIgnored
++            f.delete();
++            return null;
++        }
++    }
++
++    private String key(int y, int m) {
++        return zone + "-" + y + "-" + (m < 10 ? "0" : "") + m;
++    }
++
++    private boolean fetchAndStore(int y, int m) {
++        Day[] days = null;
++        try {
++            days = fromWaktuSolat(y, m);
++        } catch (Exception e) {
++            Log.w(TAG, "waktusolat.app failed for " + key(y, m) + ": " + e);
++        }
++        if (days == null) {
++            try {
++                days = fromJakim(y, m);
++            } catch (Exception e) {
++                Log.w(TAG, "e-solat.gov.my failed for " + key(y, m) + ": " + e);
++            }
++        }
++        if (days == null) return false;
++        try {
++            JSONArray arr = new JSONArray();
++            for (Day d : days) {
++                JSONObject o = new JSONObject();
++                o.put("h", d.hijri == null ? "" : d.hijri);
++                JSONArray t = new JSONArray();
++                for (long v : d.times) t.put(v);
++                o.put("t", t);
++                arr.put(o);
++            }
++            File tmp = new File(dir, key(y, m) + ".tmp");
++            try (OutputStream out = new FileOutputStream(tmp)) {
++                out.write(arr.toString().getBytes(StandardCharsets.UTF_8));
++            }
++            //noinspection ResultOfMethodCallIgnored
++            tmp.renameTo(new File(dir, key(y, m) + ".json"));
++            synchronized (this) {
++                months.put(key(y, m), days);
++            }
++            pruneOld(y, m);
++            Log.i(TAG, "cached " + key(y, m) + " (" + days.length + " days)");
++            return true;
++        } catch (Exception e) {
++            Log.w(TAG, "could not cache " + key(y, m) + ": " + e);
++            return false;
++        }
++    }
++
++    /** Keeps only the last few months' files. */
++    private void pruneOld(int y, int m) {
++        File[] files = dir.listFiles();
++        if (files == null) return;
++        int keepFrom = y * 12 + m - 3;
++        for (File f : files) {
++            String n = f.getName();
++            String[] p = n.replace(".json", "").split("-");
++            if (p.length != 3) continue;
++            try {
++                if (Integer.parseInt(p[1]) * 12 + Integer.parseInt(p[2]) < keepFrom) {
++                    //noinspection ResultOfMethodCallIgnored
++                    f.delete();
++                }
++            } catch (NumberFormatException ignored) {
++            }
++        }
++    }
++
++    private static Day[] parseStored(String s) throws Exception {
++        JSONArray arr = new JSONArray(s);
++        Day[] days = new Day[arr.length()];
++        for (int i = 0; i < arr.length(); i++) {
++            JSONObject o = arr.getJSONObject(i);
++            JSONArray t = o.getJSONArray("t");
++            long[] times = new long[5];
++            for (int k = 0; k < 5; k++) times[k] = t.getLong(k);
++            days[i] = new Day(o.optString("h", null), times);
++        }
++        return validate(days);
++    }
++
++    /** api.waktusolat.app: epoch seconds per prayer, one row per day of the month. */
++    private Day[] fromWaktuSolat(int y, int m) throws Exception {
++        String body = get("https://api.waktusolat.app/v2/solat/" + zone + "?year=" + y + "&month=" + m, null);
++        JSONObject json = new JSONObject(body);
++        if (json.optInt("month_number") != m || json.optInt("year") != y
++                || !zone.equalsIgnoreCase(json.optString("zone"))) {
++            throw new IllegalStateException("unexpected month/zone in reply");
++        }
++        JSONArray rows = json.getJSONArray("prayers");
++        Day[] days = new Day[rows.length()];
++        String[] keys = {"fajr", "dhuhr", "asr", "maghrib", "isha"};
++        for (int i = 0; i < rows.length(); i++) {
++            JSONObject r = rows.getJSONObject(i);
++            if (r.getInt("day") != i + 1) throw new IllegalStateException("days out of order");
++            long[] t = new long[5];
++            for (int k = 0; k < 5; k++) t[k] = r.getLong(keys[k]) * 1000L;
++            days[i] = new Day(r.optString("hijri", null), t);
++        }
++        return validate(days);
++    }
++
++    /** e-solat.gov.my (JAKIM): "HH:mm:ss" local times, one row per date in the range. */
++    private Day[] fromJakim(int y, int m) throws Exception {
++        Calendar c = Calendar.getInstance(MYT);
++        c.clear();
++        c.set(y, m - 1, 1);
++        int last = c.getActualMaximum(Calendar.DAY_OF_MONTH);
++        String mm = (m < 10 ? "0" : "") + m;
++        String body = get("https://www.e-solat.gov.my/index.php?r=esolatApi/TakwimSolat&period=duration&zone=" + zone,
++                "datestart=" + y + "-" + mm + "-01&dateend=" + y + "-" + mm + "-" + last);
++        JSONArray rows = new JSONObject(body).getJSONArray("prayerTime");
++        if (rows.length() != last) throw new IllegalStateException("expected " + last + " days, got " + rows.length());
++        Day[] days = new Day[last];
++        String[] keys = {"fajr", "dhuhr", "asr", "maghrib", "isha"};
++        for (int i = 0; i < last; i++) {
++            JSONObject r = rows.getJSONObject(i);
++            int d = Integer.parseInt(r.getString("date").substring(0, 2));
++            if (d != i + 1) throw new IllegalStateException("days out of order");
++            long[] t = new long[5];
++            for (int k = 0; k < 5; k++) {
++                String[] hms = r.getString(keys[k]).split(":");
++                Calendar at = Calendar.getInstance(MYT);
++                at.clear();
++                at.set(y, m - 1, d, Integer.parseInt(hms[0]), Integer.parseInt(hms[1]), 0);
++                t[k] = at.getTimeInMillis();
++            }
++            days[i] = new Day(r.optString("hijri", null), t);
++        }
++        return validate(days);
++    }
++
++    /** At least 28 days, each with five times in order on the same day. */
++    private static Day[] validate(Day[] days) {
++        if (days == null || days.length < 28 || days.length > 31) throw new IllegalStateException("bad month length");
++        for (Day d : days) {
++            if (d == null || d.times.length != 5) throw new IllegalStateException("bad day");
++            for (int k = 1; k < 5; k++) {
++                if (d.times[k] <= d.times[k - 1]) throw new IllegalStateException("times out of order");
++            }
++            if (d.times[4] - d.times[0] > 20 * 3600_000L) throw new IllegalStateException("times span too long");
++        }
++        return days;
++    }
++
++    private static String get(String url, String postBody) throws Exception {
++        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
++        try {
++            c.setConnectTimeout(TIMEOUT_MS);
++            c.setReadTimeout(TIMEOUT_MS);
++            c.setRequestProperty("Accept", "application/json");
++            c.setRequestProperty("User-Agent", "GlassTV-Launcher");
++            if (postBody != null) {
++                c.setRequestMethod("POST");
++                c.setDoOutput(true);
++                c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
++                try (OutputStream out = c.getOutputStream()) {
++                    out.write(postBody.getBytes(StandardCharsets.UTF_8));
++                }
++            }
++            if (c.getResponseCode() != 200) throw new IllegalStateException("HTTP " + c.getResponseCode());
++            return new String(read(c.getInputStream(), 512 * 1024), StandardCharsets.UTF_8);
++        } finally {
++            c.disconnect();
++        }
++    }
++
++    private static byte[] read(InputStream in, int max) throws Exception {
++        try (InputStream is = in) {
++            ByteArrayOutputStream out = new ByteArrayOutputStream();
++            byte[] buf = new byte[8192];
++            int n;
++            while ((n = is.read(buf)) > 0) {
++                out.write(buf, 0, n);
++                if (out.size() > max) throw new IllegalStateException("reply too large");
++            }
++            return out.toByteArray();
++        }
++    }
++}
+diff --git a/launcher/app/src/main/res/drawable/ic_hidden.xml b/launcher/app/src/main/res/drawable/ic_hidden.xml
+new file mode 100644
+index 0000000..a5b4e9b
+--- /dev/null
++++ b/launcher/app/src/main/res/drawable/ic_hidden.xml
+@@ -0,0 +1,9 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- An open eye: Hidden apps, the list that shows hidden apps again. -->
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="20dp" android:height="20dp"
++    android:viewportWidth="24" android:viewportHeight="24">
++    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="1.6"
++        android:strokeLineJoin="round" android:strokeLineCap="round"
++        android:pathData="M2.5,12C4.5,7.8 8,5.5 12,5.5C16,5.5 19.5,7.8 21.5,12C19.5,16.2 16,18.5 12,18.5C8,18.5 4.5,16.2 2.5,12Z M12,9A3,3 0 1,1 12,15A3,3 0 1,1 12,9Z" />
++</vector>
+diff --git a/launcher/app/src/main/res/drawable/ic_hide.xml b/launcher/app/src/main/res/drawable/ic_hide.xml
+new file mode 100644
+index 0000000..ec12b58
+--- /dev/null
++++ b/launcher/app/src/main/res/drawable/ic_hide.xml
+@@ -0,0 +1,9 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- An eye struck through: Hide from Home, in the menu that holding OK on an app opens. -->
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="20dp" android:height="20dp"
++    android:viewportWidth="24" android:viewportHeight="24">
++    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="1.6"
++        android:strokeLineJoin="round" android:strokeLineCap="round"
++        android:pathData="M2.5,12C4.5,7.8 8,5.5 12,5.5C16,5.5 19.5,7.8 21.5,12C19.5,16.2 16,18.5 12,18.5C8,18.5 4.5,16.2 2.5,12Z M12,9A3,3 0 1,1 12,15A3,3 0 1,1 12,9Z M4,4L20,20" />
++</vector>
+diff --git a/launcher/app/src/main/res/layout/activity_main.xml b/launcher/app/src/main/res/layout/activity_main.xml
+index 75d357d..fda7ae4 100644
+--- a/launcher/app/src/main/res/layout/activity_main.xml
++++ b/launcher/app/src/main/res/layout/activity_main.xml
+@@ -161,22 +161,47 @@
+                                 android:includeFontPadding="false"
+                                 android:visibility="gone" />
+ 
+-                            <TextClock
+-                                android:id="@+id/date"
+-                                android:gravity="left"
++                            <!-- Date, then the Hijri date beside it ("25 OCT 2026  ·  14 JAMADILAWAL 1448"). -->
++                            <LinearLayout
+                                 android:layout_width="match_parent"
+                                 android:layout_height="wrap_content"
+-                                android:singleLine="true"
+-                                android:ellipsize="end"
+-                                android:includeFontPadding="false"
+-                                android:format12Hour="@string/date_format"
+-                                android:format24Hour="@string/date_format"
+-                                android:textColor="#A6FFFFFF"
+-                                android:textSize="14sp"
+-                                android:fontFamily="@font/outfit"
+-                                android:fontVariationSettings="'wght' 400"
+-                                android:letterSpacing="0.14"
+-                                android:textAllCaps="true" />
++                                android:orientation="horizontal"
++                                android:baselineAligned="true">
++
++                                <TextClock
++                                    android:id="@+id/date"
++                                    android:gravity="left"
++                                    android:layout_width="wrap_content"
++                                    android:layout_height="wrap_content"
++                                    android:singleLine="true"
++                                    android:includeFontPadding="false"
++                                    android:format12Hour="@string/date_format"
++                                    android:format24Hour="@string/date_format"
++                                    android:textColor="#A6FFFFFF"
++                                    android:textSize="14sp"
++                                    android:fontFamily="@font/outfit"
++                                    android:fontVariationSettings="'wght' 400"
++                                    android:letterSpacing="0.14"
++                                    android:textAllCaps="true" />
++
++                                <TextView
++                                    android:id="@+id/hijriDate"
++                                    android:gravity="left"
++                                    android:layout_width="0dp"
++                                    android:layout_weight="1"
++                                    android:layout_height="wrap_content"
++                                    android:singleLine="true"
++                                    android:ellipsize="end"
++                                    android:includeFontPadding="false"
++                                    android:focusable="false"
++                                    android:textColor="#A6FFFFFF"
++                                    android:textSize="14sp"
++                                    android:fontFamily="@font/outfit"
++                                    android:fontVariationSettings="'wght' 400"
++                                    android:letterSpacing="0.14"
++                                    android:textAllCaps="true"
++                                    android:visibility="gone" />
++                            </LinearLayout>
+                         </LinearLayout>
+                     </FrameLayout>
+                 </LinearLayout>
+@@ -221,6 +246,36 @@
+             </LinearLayout>
+         </RelativeLayout>
+ 
++        <!-- Prayer times (JAKIM), read-only: nothing here is focusable, so remote navigation is unchanged.
++             The five prayers spread edge to edge with a dot centred in each gap (filled in code),
++             and the countdown to the next prayer on its own line underneath. -->
++        <LinearLayout
++            android:id="@+id/prayerRow"
++            android:layout_width="match_parent"
++            android:layout_height="wrap_content"
++            android:layout_marginTop="12dp"
++            android:orientation="horizontal"
++            android:baselineAligned="true"
++            android:focusable="false"
++            android:descendantFocusability="blocksDescendants"
++            android:visibility="gone" />
++
++        <TextView
++            android:id="@+id/prayerCountdown"
++            android:gravity="left"
++            android:layout_width="match_parent"
++            android:layout_height="wrap_content"
++            android:layout_marginTop="6dp"
++            android:singleLine="true"
++            android:includeFontPadding="false"
++            android:focusable="false"
++            android:textColor="#FFFFFFFF"
++            android:textSize="15sp"
++            android:fontFamily="@font/outfit"
++            android:fontVariationSettings="'wght' 650"
++            android:letterSpacing="0.04"
++            android:visibility="gone" />
++
+         <!-- The wrapper clips at the grid's edge; the grid itself must not clip so scaled tiles can overflow their cells. -->
+         <com.gathin.tvhome.FadeTopFrame
+             android:id="@+id/gridWrap"
+diff --git a/launcher/app/src/main/res/values/strings.xml b/launcher/app/src/main/res/values/strings.xml
+index ae4da1d..f804315 100644
+--- a/launcher/app/src/main/res/values/strings.xml
++++ b/launcher/app/src/main/res/values/strings.xml
+@@ -44,4 +44,6 @@
+     <string name="card_state_new_label">New name</string>
+     <string name="tile_move">Move</string>
+     <string name="tile_app_info">App info</string>
++    <string name="tile_hide">Hide from Home</string>
++    <string name="tile_hidden_apps">Hidden apps (%1$d)</string>
+ </resources>

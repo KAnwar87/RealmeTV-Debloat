@@ -1,0 +1,18 @@
+# APKs go to GitHub Releases, not into git history
+*.apk
+releases/
+
+# Personal app lists stay local
+backup/user-packages.txt
+backup/user-apps-after.txt
+
+# Never commit ADB keys or Python environments
+adbkey
+adbkey.pub
+*.keystore
+venv/
+__pycache__/
+
+# Windows clutter
+Thumbs.db
+desktop.ini

@@ -1,0 +1,12 @@
+# Batch 2 - features and preloaded apps not used. Remove any line you want to keep.
+# Apply / undo exactly as for my-batch1.txt.
+com.google.android.katniss              # Google Assistant (mic button stops working)
+com.google.android.apps.mediashell      # Chromecast built-in (casting from a phone stops)
+com.homwee.multiscreenshare             # screen mirroring
+com.homwee.mmp.screenshare              # screen mirroring
+com.google.android.youtube.tvmusic      # YouTube Music
+com.google.android.videos               # Google TV (Play Movies)
+com.google.android.play.games           # Play Games
+com.amazon.amazonvideo.livingroom       # Prime Video
+com.google.android.backdrop             # ambient screensaver
+com.google.android.syncadapters.calendar # calendar sync

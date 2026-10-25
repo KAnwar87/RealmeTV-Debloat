@@ -1,0 +1,12 @@
+# Batch 1 - ads, tracking and vendor clutter (Realme / Changhong AI PONT, Android TV 11)
+# Apply: powershell -ExecutionPolicy Bypass -File tools\disable.ps1 -TvHost <tv-ip> <path>\my-batch1.txt
+# Undo:  powershell -ExecutionPolicy Bypass -File tools\restore.ps1 -TvHost <tv-ip> <path>\my-batch1.txt
+# Scripts: https://github.com/aqmangge/glass-tv-home (packages are disabled, never uninstalled)
+tv.anoki.acr.controller                 # content recognition (tracks what is on screen)
+com.homwee.aipont                       # AI PONT brand portal
+com.google.android.tvrecommendations    # promo / recommendation rows
+android.autoinstalls.config.homwee      # silent partner-app installer
+com.google.android.feedback             # feedback reporter
+com.homwee.store                        # vendor app store
+com.homwee.help                         # vendor e-manual
+com.homwee.howtocast                    # "how to cast" tutorial
