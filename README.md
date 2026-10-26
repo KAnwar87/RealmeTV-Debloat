@@ -23,8 +23,9 @@ Changhong-made "AI PONT" platform. It is not a general tool, and it has only bee
 - **Still working:** HDMI / Input key, remote, Live TV, YouTube, Netflix, Disney+ Hotstar,
   USB photos and files, firmware updates.
 - **Ad-blocking DNS** (AdGuard) via Android's Private DNS.
-- **Glass TV launcher** as the Home screen, with a patch adding JAKIM prayer times, the Hijri date,
-  hourly wallpapers and hide/show apps.
+- **Glass TV launcher** as the Home screen, with a patch adding a JAKIM prayer card, the Hijri date,
+  a quieter resting view (dock alone at the bottom, all apps on Down), a clearer selection,
+  tvOS-style top buttons, hourly wallpapers at :00 and hide/show apps.
 - **YouTube without ads** (testing): a patched build of [pearlxcore/YouTube-TV-NoAds](https://github.com/pearlxcore/YouTube-TV-NoAds), installed beside the stock app. See [`docs/YouTube-NoAds.md`](docs/YouTube-NoAds.md).
 
 ## What's in this repo

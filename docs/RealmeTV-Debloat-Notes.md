@@ -14,7 +14,7 @@ Done on **25 Oct 2026**. Everything below is reversible. Nothing was uninstalled
 | Device codename | `ikebukuro` |
 | Android | Android TV 11 |
 | CPU architecture | **32-bit only** — `armeabi-v7a, armeabi` |
-| Home screen | **Glass TV v2.3-solat5** (original + prayer times + hide apps) — `com.gathin.tvhome` |
+| Home screen | **Glass TV v2.3-solat8** (original + prayer card, two home views, hide apps) — `com.gathin.tvhome` |
 | Stock launcher | `com.google.android.tvlauncher` (disabled, can be re-enabled) |
 | Live TV / inputs | `com.mediatek.wwtv.tvcenter`, `com.mediatek.tvinput`, `com.mediatek.tv.service` |
 | IP used | `192.168.0.13` (Wi-Fi) |
@@ -155,33 +155,51 @@ adb shell settings put global private_dns_mode opportunistic
 
 ## 8. Home screen — Glass TV (original + custom changes)
 
-**Final setup: Glass TV v2.3-solat5 is the Home screen.** It is the original `cocombee/glass-tv` launcher with changes built for this TV. Tested working: remote left/right/OK, Home key, Inputs menu → HDMI, YouTube / Netflix / Nuvio, prayer times, hiding apps, and still Home after a restart.
+**Current setup: Glass TV v2.3-solat8 is the Home screen.** It is the original `cocombee/glass-tv` launcher with changes built for this TV. Tested working: remote left/right/OK, Home key, Inputs menu → HDMI, YouTube / Netflix / Nuvio, prayer times, hiding apps, both home views, and still Home after a restart.
 
 | Item | Value |
 |---|---|
-| APK (keep this) | `C:\RealmeTV\glass-tv-original-v2.3-solat5.apk` |
-| SHA-256 | `B897F4DAA5E5885E564FE39DEA7C3C8A63746B8161A5B3BBA3940C90DC20CAA3` |
+| APK (keep this) | `C:\RealmeTV\realmetv-debloat\releases\glass-tv-original-v2.3-solat8.apk` (also on the repo's Releases page, v1.1) |
+| SHA-256 | `57F3124DA4FDBAAB034A0BB3CA582581320A83A9936AAB27C7FE7FB24B9DFE05` |
 | Based on | `cocombee/glass-tv`, commit `ce164b6` (24 Oct 2026) |
-| Source changes | `C:\RealmeTV\glass-tv-solat.patch` |
-| Package / version | `com.gathin.tvhome`, 2.3-solat5 (versionCode 9), pure Java, no native libraries |
+| Source changes | `launcher/glass-tv-solat.patch` in this repo |
+| Package / version | `com.gathin.tvhome`, 2.3-solat8 (versionCode 12), pure Java, no native libraries |
 | Stock launcher | `com.google.android.tvlauncher` — disabled |
+| Previous release | v1.0 = 2.3-solat5 (first version with prayer times and hide apps) |
 
-Older APKs in `C:\RealmeTV` (`glass-tv-original-v2.3.apk`, `-solat`, `-solat2`, `-solat3`, `-solat4`) are no longer needed. `glass-tv-original-v2.3.apk` (plain original) can be kept as a fallback.
+Designs were agreed as mock-ups before each build.
+
+### The two home views
+
+**Resting view** (what Home shows normally)
+- Top left: 12-hour clock with a small AM/PM at the top of the digits, a thin divider, then three lines: `MONDAY` / `26 OCT 2026` / `15 JAMADILAWAL 1448`.
+- Top right: three frosted icon circles (Inputs, Wi-Fi, Settings), tvOS style. The selected one turns solid white with a dark icon; the Wi-Fi name appears under the Wi-Fi circle while it is selected.
+- Prayer card (left half, under the clock).
+- Place caption (name, country, up to two lines of description) right-aligned on the right half, above the dock.
+- The frosted dock at the bottom, with app names under every tile. Nothing below it.
+
+**All-apps view** (Down from the dock)
+- Prayer card and place caption hidden; the dock moves to the top with every other app below it. Easiest view for arranging apps.
+- **Back**, **Up** from the dock, or coming back from an app returns to the resting view.
+- Carrying an app down out of the dock in Move mode opens this view too.
 
 ### What was added on top of the original
 
 **Prayer times (JAKIM), display only**
-- Five daily prayers in 12-hour time, spread across the screen under the clock, with a dot between each: `Subuh 5:49 am  •  Zohor 1:00 pm  •  ASAR 4:19 PM  •  ...`
-- The **next prayer is in UPPERCASE**, bold and white. Countdown on its own line: `ASAR in 1h 5min`.
-- After Isyak, the row shows tomorrow's times with SUBUH as next.
-- **Hijri date** beside the normal date: `25 OCT 2026 · 14 JAMADILAWAL 1448`.
-- Zone **SGR01** (Gombak, Petaling, Sepang, Shah Alam).
+- A glass card on the left half: header `PRAYER · SGR01` with the countdown in amber on the right (`Isyak in 40min`, `Subuh in 7h 6min`).
+- Five columns: large 12-hour time (`5:49` with a small `am`) over the name (SUBUH, ZOHOR, ASAR, MAGHRIB, ISYAK). The next prayer is amber.
+- After Isyak the card shows tomorrow's times with SUBUH next.
+- Zone **SGR01** (Gombak, Petaling, Sepang, Hulu Langat, Hulu Selangor, Shah Alam).
 - Source: `api.waktusolat.app` (community service republishing JAKIM e-Solat; checked against JAKIM to the minute), with JAKIM's own `e-solat.gov.my` as backup. Current and next month cached on the TV; a failed download is retried every 30 minutes.
 - Nothing in it can be selected with the remote, so navigation is unchanged.
 
+**Selection and names**
+- Selected app: solid white ring with a soft glow and a slight lift; the other tiles are veiled about 30% darker.
+- App names under every tile, the dock included: dim at rest, bold white on the selected one.
+
 **Wallpaper**
 - Bing's daily homepage pictures (renewed weekly by the TV, pictures with people skipped).
-- Changes **every hour at :00**. Coming back from an app after an hour passed, it changes about 6 seconds later.
+- Changes **every hour at :00**. Coming back from an app after an hour passed, it changes about 6 seconds later; after standby it catches up within a minute.
 
 **Hide / show apps (hold OK on any app)**
 - **Hide from Home** — tile disappears (app is not disabled or uninstalled).
@@ -191,7 +209,7 @@ Older APKs in `C:\RealmeTV` (`glass-tv-original-v2.3.apk`, `-solat`, `-solat2`, 
 **Other (from the original)**
 - Every TV app appears automatically; new installs join at the end.
 - Hold OK → **Move** to rearrange, including into the dock.
-- Top bar: Inputs (HDMI), Wi-Fi, Settings (gear opens Android Settings).
+- Top right: Inputs (HDMI), Wi-Fi, Settings (gear opens Android Settings).
 
 ### Optional settings (theme `config.json`)
 
@@ -205,7 +223,7 @@ powershell -ExecutionPolicy Bypass -File tools\theme.ps1 -TvHost 192.168.0.13 th
 | Key | Meaning |
 |---|---|
 | `prayer_zone` | JAKIM zone code, e.g. `WLY01` (KL/Putrajaya), `SGR03` (Klang). Default `SGR01` |
-| `prayer_times` | `false` hides the prayer row and Hijri date |
+| `prayer_times` | `false` hides the prayer card and Hijri date |
 | `wallpaper_minutes` | Minutes between pictures (default 60). Values that divide a day (30, 60, 120…) change on the clock |
 | `hidden_apps`, `dock_apps` | Package lists, see the original repo's `themes/README.md` |
 
@@ -219,15 +237,15 @@ Undo a theme: `powershell -ExecutionPolicy Bypass -File tools\theme.ps1 -TvHost 
 ### Reinstall / update / roll back
 
 ```powershell
-cd C:\RealmeTV
+cd C:\RealmeTV\realmetv-debloat\releases
 adb connect 192.168.0.13:5555
 
 # Reinstall or update (keeps app order, hidden apps and cached prayer times)
-adb install -r glass-tv-original-v2.3-solat5.apk
+adb install -r glass-tv-original-v2.3-solat8.apk
 adb shell am force-stop com.gathin.tvhome
 
 # After a factory reset: install, then make it Home
-adb install -r glass-tv-original-v2.3-solat5.apk
+adb install -r glass-tv-original-v2.3-solat8.apk
 adb shell pm grant com.gathin.tvhome android.permission.ACCESS_FINE_LOCATION
 adb shell am start -n com.gathin.tvhome/.MainActivity        # test with the remote FIRST
 adb shell pm disable-user --user 0 com.google.android.tvlauncher

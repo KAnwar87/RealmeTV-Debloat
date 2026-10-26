@@ -1,5 +1,5 @@
 diff --git a/launcher/app/build.gradle b/launcher/app/build.gradle
-index 4579341..37f15f7 100644
+index 4579341..0afc79c 100644
 --- a/launcher/app/build.gradle
 +++ b/launcher/app/build.gradle
 @@ -10,8 +10,8 @@ android {
@@ -8,16 +8,26 @@ index 4579341..37f15f7 100644
          targetSdk 34
 -        versionCode 4
 -        versionName '2.3'
-+        versionCode 9
-+        versionName '2.3-solat5'
++        versionCode 12
++        versionName '2.3-solat8'
      }
  
      buildTypes {
 diff --git a/launcher/app/src/main/java/com/gathin/tvhome/AppAdapter.java b/launcher/app/src/main/java/com/gathin/tvhome/AppAdapter.java
-index 58c41c3..d3b0564 100644
+index 58c41c3..30af109 100644
 --- a/launcher/app/src/main/java/com/gathin/tvhome/AppAdapter.java
 +++ b/launcher/app/src/main/java/com/gathin/tvhome/AppAdapter.java
-@@ -130,6 +130,9 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
+@@ -88,6 +88,9 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
+     }
+ 
+     static final float FOCUS_SCALE = 1.07f;
++    /** Names under every tile, dock included: dim at rest, full white and bolder on the focused tile. */
++    static final float NAME_REST_ALPHA = 0.62f;
++    static final String NAME_REST_WEIGHT = "'wght' 500", NAME_FOCUS_WEIGHT = "'wght' 680";
+     /** Shared by every tile's zoom, so a focus move makes no new objects. */
+     private static final DecelerateInterpolator ZOOM_REDUCED = new DecelerateInterpolator();
+     private static final OvershootInterpolator ZOOM_IN = new OvershootInterpolator(1.6f);
+@@ -130,6 +133,9 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
      /** The order someone arranged the tiles in, by key (see {@link #keyAt}); empty until they do. */
      private final List<String> arranged = new ArrayList<>();
      private static final String ORDER_PREFS = "tiles", ORDER_KEY = "order";
@@ -27,7 +37,7 @@ index 58c41c3..d3b0564 100644
      /** Rebind payload: only whether the tile's name shows, which depends on being in the dock. */
      private static final Object DOCK_CHANGED = new Object();
  
-@@ -146,6 +149,58 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
+@@ -146,6 +152,58 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
          setHasStableIds(true);
          String saved = ctx.getSharedPreferences(ORDER_PREFS, Context.MODE_PRIVATE).getString(ORDER_KEY, "");
          if (!saved.isEmpty()) arranged.addAll(Arrays.asList(saved.split("\n")));
@@ -86,7 +96,7 @@ index 58c41c3..d3b0564 100644
      }
  
      /**
-@@ -208,7 +263,7 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
+@@ -208,7 +266,7 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
          for (ResolveInfo ri : found) {
              if (ri.activityInfo == null) continue;
              String pkg = ri.activityInfo.packageName;
@@ -95,6 +105,56 @@ index 58c41c3..d3b0564 100644
              ComponentName component = new ComponentName(pkg, ri.activityInfo.name);
              Cards.Card card = cardByPkg.get(pkg);
              if (card != null && !card.component.equals(component)) continue;   // the card stands in for this tile
+@@ -307,9 +365,11 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
+     public void onBindViewHolder(@NonNull Holder h, int position) {
+         Entry e = items.get(position);
+         h.name.setText(e.name);
+-        h.name.setVisibility(position < dockSize ? View.INVISIBLE : View.VISIBLE);   // the dock has no labels
++        h.name.setVisibility(View.VISIBLE);
+         boolean focused = h.card.isFocused();   // a rebind after reload() can hit the focused tile
+-        h.name.setAlpha(focused ? 1f : 0f);
++        h.name.setAlpha(focused ? 1f : NAME_REST_ALPHA);
++        h.name.setTranslationY(0f);
++        h.name.setFontVariationSettings(focused ? NAME_FOCUS_WEIGHT : NAME_REST_WEIGHT);
+         h.card.setScaleX(focused ? FOCUS_SCALE : 1f);
+         h.card.setScaleY(focused ? FOCUS_SCALE : 1f);
+         if (e.banner != null) {
+@@ -337,7 +397,7 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
+     @Override
+     public void onBindViewHolder(@NonNull Holder h, int position, @NonNull List<Object> payloads) {
+         if (payloads.size() == 1 && payloads.get(0) == DOCK_CHANGED) {
+-            h.name.setVisibility(position < dockSize ? View.INVISIBLE : View.VISIBLE);
++            h.name.setVisibility(View.VISIBLE);
+             return;
+         }
+         onBindViewHolder(h, position);
+@@ -528,6 +588,7 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
+                 float s = focused ? FOCUS_SCALE : 1.0f;
+                 view.animate().cancel();
+                 name.animate().cancel();
++                name.setFontVariationSettings(focused ? NAME_FOCUS_WEIGHT : NAME_REST_WEIGHT);
+                 if (reducedMotion) {
+                     // No overshoot: the extra frames redraw the banner and the dock band on a weak GPU.
+                     view.animate().scaleX(s).scaleY(s)
+@@ -535,16 +596,14 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
+                             .setInterpolator(ZOOM_REDUCED)
+                             .withLayer()
+                             .start();
+-                    name.animate().alpha(focused ? 1f : 0f).setDuration(100).start();
++                    name.animate().alpha(focused ? 1f : NAME_REST_ALPHA).setDuration(100).start();
+                 } else {
+                     view.animate().scaleX(s).scaleY(s)
+                             .setDuration(focused ? 260 : 180)
+                             .setInterpolator(focused ? ZOOM_IN : ZOOM_OUT)
+                             .withLayer()
+                             .start();
+-                    name.animate().alpha(focused ? 1f : 0f)
+-                            .translationY(focused ? density * 4f : -density * 6f)
+-                            .setDuration(220).start();
++                    name.animate().alpha(focused ? 1f : NAME_REST_ALPHA).setDuration(180).start();
+                 }
+                 int pos = getBindingAdapterPosition();
+                 if (focused && listener != null && pos != RecyclerView.NO_POSITION) {
 diff --git a/launcher/app/src/main/java/com/gathin/tvhome/Config.java b/launcher/app/src/main/java/com/gathin/tvhome/Config.java
 index c6e55a9..5723f25 100644
 --- a/launcher/app/src/main/java/com/gathin/tvhome/Config.java
@@ -108,26 +168,146 @@ index c6e55a9..5723f25 100644
          int wallpaperSeconds = json != null ? integer(json, "wallpaper_seconds", 0, 5, 86400) : 0;
          long wallpaperIntervalMs = wallpaperSeconds > 0 ? wallpaperSeconds * 1000L : wallpaperMinutes * 60_000L;
          // On unless a theme says otherwise: a fresh install shows places with nothing to set up.
+diff --git a/launcher/app/src/main/java/com/gathin/tvhome/DockDecoration.java b/launcher/app/src/main/java/com/gathin/tvhome/DockDecoration.java
+index 81bf3fa..216def5 100644
+--- a/launcher/app/src/main/java/com/gathin/tvhome/DockDecoration.java
++++ b/launcher/app/src/main/java/com/gathin/tvhome/DockDecoration.java
+@@ -16,6 +16,8 @@ import androidx.recyclerview.widget.RecyclerView;
+ public class DockDecoration extends RecyclerView.ItemDecoration {
+ 
+     private final int dockSize;
++    /** Gap under the dock's item; MainActivity.parkDock counts it too. */
++    static final int BOTTOM_GAP_DP = 24;
+     private final float density;
+     private final Paint band = new Paint(Paint.ANTI_ALIAS_FLAG);
+     private final GlassRim edge;
+@@ -46,13 +48,14 @@ public class DockDecoration extends RecyclerView.ItemDecoration {
+         int pos = parent.getChildAdapterPosition(view);
+         if (pos >= 0 && pos < dockSize) {
+             outRect.top = (int) (6 * density);
+-            outRect.bottom = (int) (12 * density);
++            outRect.bottom = (int) (BOTTOM_GAP_DP * density);   // room under the names before the next row
+         }
+     }
+ 
+     @Override
+     public void onDraw(@NonNull Canvas c, @NonNull RecyclerView parent, @NonNull RecyclerView.State state) {
+         boolean any = false;
++        float namesBottom = 0f;
+         for (int i = 0; i < parent.getChildCount(); i++) {
+             View child = parent.getChildAt(i);
+             int pos = parent.getChildAdapterPosition(child);
+@@ -63,6 +66,11 @@ public class DockDecoration extends RecyclerView.ItemDecoration {
+             float t = child.getTop() + card.getTop() + child.getTranslationY();
+             float r = l + card.getWidth();
+             float b = t + card.getHeight();
++            // The tray also wraps the app names under the tiles.
++            View name = child.findViewById(R.id.name);
++            if (name != null && name.getVisibility() == View.VISIBLE) {
++                namesBottom = Math.max(namesBottom, child.getTop() + name.getBottom() + child.getTranslationY());
++            }
+             if (!any) {
+                 rect.set(l, t, r, b);
+                 any = true;
+@@ -73,6 +81,7 @@ public class DockDecoration extends RecyclerView.ItemDecoration {
+         if (!any) return;
+         float pad = 14 * density;
+         rect.inset(-pad, -pad);
++        if (namesBottom > 0f) rect.bottom = Math.max(rect.bottom, namesBottom + 8 * density);
+         area.set(rect);
+         float radius = 26 * density;
+         blur.draw(c, parent, rect, radius, 1f);
+diff --git a/launcher/app/src/main/java/com/gathin/tvhome/GlassView.java b/launcher/app/src/main/java/com/gathin/tvhome/GlassView.java
+index 936d0c1..0833664 100644
+--- a/launcher/app/src/main/java/com/gathin/tvhome/GlassView.java
++++ b/launcher/app/src/main/java/com/gathin/tvhome/GlassView.java
+@@ -36,14 +36,37 @@ public class GlassView extends View {
+         invalidate();
+     }
+ 
++    /** A solid white ring just outside the zoomed tile, with a soft glow around it, easy to see across a room. */
++    private final android.graphics.Paint ring = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
++    private final android.graphics.Paint glow = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
++    private final RectF band = new RectF();
++
++    {
++        ring.setStyle(android.graphics.Paint.Style.STROKE);
++        ring.setColor(0xFFFFFFFF);
++        glow.setStyle(android.graphics.Paint.Style.STROKE);
++    }
++
+     @Override
+     protected void onDraw(Canvas canvas) {
+-        // The slab keeps its old size: this inset once made room for an outer glow, and the tile
+-        // positions and the spring are measured around it.
++        // The slab keeps its old size: the 6dp inset is the room around the tile for the ring and glow,
++        // and the tile positions and the spring are measured around it.
+         float inset = 6f * density;
+         rect.set(inset, inset, getWidth() - inset, getHeight() - inset);
+-        // A rim only: the slab sits on top of the tile, so any fill would wash the app out.
+-        rim.fit(rect);
+-        canvas.drawRoundRect(rect, radius, radius, rim.paint);
++        // Glow: a few wide, faint strokes fading outwards into the inset.
++        for (int k = 4; k >= 1; k--) {
++            float out = (1.5f + k * 1.1f) * density;
++            band.set(rect);
++            band.inset(-out, -out);
++            glow.setStrokeWidth(1.4f * density);
++            glow.setColor(((int) (0x2A * (5 - k) / 4f) << 24) | 0xFFFFFF);
++            canvas.drawRoundRect(band, radius + out, radius + out, glow);
++        }
++        // Ring: 3dp of solid white, hugging the tile's edge from outside.
++        float w = 3f * density;
++        ring.setStrokeWidth(w);
++        band.set(rect);
++        band.inset(-w / 2f, -w / 2f);
++        canvas.drawRoundRect(band, radius + w / 2f, radius + w / 2f, ring);
+     }
+ }
 diff --git a/launcher/app/src/main/java/com/gathin/tvhome/MainActivity.java b/launcher/app/src/main/java/com/gathin/tvhome/MainActivity.java
-index 3cd391e..f315578 100644
+index 3cd391e..4057ad1 100644
 --- a/launcher/app/src/main/java/com/gathin/tvhome/MainActivity.java
 +++ b/launcher/app/src/main/java/com/gathin/tvhome/MainActivity.java
-@@ -128,6 +128,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+@@ -102,7 +102,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+     private static final float HERO_NAME_WIDTH_SHARE = 0.60f;
+     private static final float HERO_TITLE_MAX_SP = 40f;
+     /** The breathing room between the shelf's last line and the top of the app container. */
+-    private static final float HERO_GAP_DP = 67f;
++    private static final float HERO_GAP_DP = 28f;   // tray top (14dp above the tiles) plus a small gap
+     private static final float HERO_TITLE_MIN_SP = 26f;
+     /** The shelf's width in pixels, worked out once from the screen. */
+     private int heroMaxWidth, heroNameMaxWidth;
+@@ -128,6 +128,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
      private View btnInputs;
      private TextView btnWifi;
      private TextView shamsiDate;
-+    private TextView prayerCountdown, hijriDate;
++    private TextView prayerCountdown, prayerTitle, hijriDate;
 +    private android.widget.LinearLayout prayerRow;
-+    private final TextView[] prayerLabels = new TextView[5];
++    private View prayerArea;
++    private final TextView[] prayerTimes = new TextView[5];
++    private final TextView[] prayerNames = new TextView[5];
 +    private android.graphics.Typeface prayerFont;
-+    private static final String PRAYER_WEIGHT = "'wght' 500";
-+    private static final String PRAYER_NEXT_WEIGHT = "'wght' 700";
-+    private static final int PRAYER_COLOR = 0xE0FFFFFF;
++    private static final int PRAYER_TIME_COLOR = 0xF2FFFFFF;
++    private static final int PRAYER_NAME_COLOR = 0x99FFFFFF;
++    private static final int PRAYER_NEXT_COLOR = 0xFFFFC94A;   // amber, like the countdown
 +    private PrayerTimes prayer;
      private boolean shamsi;
      private String vpnApp;
      private SpringAnimation springX, springY;
-@@ -174,6 +182,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+@@ -159,6 +169,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+     private static final long RETURN_SETTLE_MS = 6000;
+     /** True while Home rebuilds on return; focus passes through the pills then and must not light them. */
+     private boolean resuming;
++    /**
++     * The all-apps view: Down from the dock hides the prayer card and the place shelf and shows the
++     * dock with every other app under it. Back, Up from the dock, or coming back from an app returns
++     * to the resting view (dock alone at the bottom).
++     */
++    private boolean allApps;
+     /** True while Home's first frame is held back (see holdFirstFrame). */
+     private boolean firstFrameHeld;
+     private Dialog cardPrompt;
+@@ -174,6 +190,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
      /** Decodes the next picture off the main thread, so a switch never stutters the D-pad animations. */
      private final java.util.concurrent.ExecutorService wallDecoder = java.util.concurrent.Executors.newSingleThreadExecutor();
      private long wallShownAt;
@@ -136,7 +316,7 @@ index 3cd391e..f315578 100644
      private android.widget.ImageView wallView;
      private android.graphics.Bitmap wallBitmap;
      /** Settings kept for the places refresh, which runs after onCreate. */
-@@ -231,8 +241,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+@@ -231,8 +249,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
          @Override
          public void run() {
              updateShamsiDate();
@@ -152,25 +332,83 @@ index 3cd391e..f315578 100644
              handler.postDelayed(this, MINUTE_MS);
          }
      };
-@@ -310,9 +327,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
-             dateLine.getPaint().getTextBounds("O", 0, 1, cap);
-             float capsAtTop = ClockDream.capInset(clock, "0") - ClockDream.capInset(amPm, "AM");
-             float foot = amPm.getTop() + capsAtTop + amPm.getBaseline();
+@@ -301,18 +326,18 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+         }
+         // Beside the clock, the date sits on the digits' baseline, and AM/PM rests halfway between
+         // the top of the digits and the top of the date, its letters' foot on that line.
+-        TextView clock = findViewById(R.id.clock), amPm = findViewById(R.id.ampm), dateLine = findViewById(R.id.date);
+-        View dateBlock = findViewById(R.id.dateBlock);
+-        dateBlock.setTranslationY(dateLine.getPaint().getFontMetrics().descent - clock.getPaint().getFontMetrics().descent);
+-        // Placed once the whole column is laid out, AM/PM and the date both.
+-        ((View) dateBlock.getParent()).addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+-            android.graphics.Rect cap = new android.graphics.Rect();
+-            dateLine.getPaint().getTextBounds("O", 0, 1, cap);
+-            float capsAtTop = ClockDream.capInset(clock, "0") - ClockDream.capInset(amPm, "AM");
+-            float foot = amPm.getTop() + capsAtTop + amPm.getBaseline();
 -            float dateTop = dateBlock.getTop() + dateBlock.getTranslationY() + dateLine.getTop() + dateLine.getBaseline() + cap.top;
-+            float dateTop = dateBlock.getTop() + dateBlock.getTranslationY() + ((View) dateLine.getParent()).getTop()
-+                    + dateLine.getTop() + dateLine.getBaseline() + cap.top;
-             amPm.setTranslationY(Math.round(capsAtTop + (foot + dateTop) / 2f - foot));
-         });
+-            amPm.setTranslationY(Math.round(capsAtTop + (foot + dateTop) / 2f - foot));
+-        });
++        // AM/PM sits at the top of the digits: its capitals' tops level with theirs.
++        TextView clock = findViewById(R.id.clock), amPm = findViewById(R.id.ampm);
++        amPm.post(() -> amPm.setTranslationY(
++                Math.round(ClockDream.capInset(clock, "0") - ClockDream.capInset(amPm, "AM"))));
++        prayerArea = findViewById(R.id.prayerArea);
 +        prayerRow = findViewById(R.id.prayerRow);
 +        prayerCountdown = findViewById(R.id.prayerCountdown);
-+        buildPrayerRow();
++        prayerTitle = findViewById(R.id.prayerTitle);
 +        hijriDate = findViewById(R.id.hijriDate);
 +        prayer = new PrayerTimes(this);
++        buildPrayerRow();   // needs prayer.zone for the card title
 +        updatePrayer();
          vpnApp = cfg.vpnApp;
          moduleCards = cfg.moduleCards;
          hiddenApps = new HashSet<>(cfg.hiddenApps);
-@@ -559,6 +583,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+@@ -329,6 +354,19 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+             }
+         });
+         grid.setHasFixedSize(true);
++        // Every tile but the focused one is veiled while focus is among the apps, so the choice stands out.
++        grid.getViewTreeObserver().addOnGlobalFocusChangeListener((oldFocus, newFocus) -> applyTileDim());
++        grid.addOnChildAttachStateChangeListener(new RecyclerView.OnChildAttachStateChangeListener() {
++            @Override
++            public void onChildViewAttachedToWindow(@NonNull View view) {
++                dimTile(view.findViewById(R.id.card));
++                restRowVisibility(view);
++            }
++
++            @Override
++            public void onChildViewDetachedFromWindow(@NonNull View view) {
++            }
++        });
+         grid.setItemAnimator(null);
+         DockDecoration tray = new DockDecoration(COLUMNS, density);
+         grid.addItemDecoration(tray);
+@@ -346,13 +384,24 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+         }
+         // The grid only shows the shape on the tray.
+         glider.addCompanion(grid, tray.area);
++        // The selected circle grows 8%: nothing between it and the screen may clip it.
++        for (View v = findViewById(R.id.topButtons); v != null && v.getId() != R.id.root;
++             v = v.getParent() instanceof View ? (View) v.getParent() : null) {
++            if (v instanceof ViewGroup) {
++                ((ViewGroup) v).setClipChildren(false);
++                ((ViewGroup) v).setClipToPadding(false);
++            }
++        }
+         for (int id : new int[]{R.id.btnInputs, R.id.btnWifi, R.id.btnSettings}) {
+             View pill = findViewById(id);
+             pill.setBackground(new GlassDrawable(pill, 21 * density, density, glider));
+             glider.addCompanion(pill);
+             Backdrop.watch(pill);
++            final android.graphics.drawable.Drawable glassBg = pill.getBackground();
++            centerIcon((TextView) pill);
+             pill.setOnFocusChangeListener((v, has) -> {
+                 if (has) moveTopHighlight(v);
++                appleFocus((TextView) v, has, glassBg);
+             });
+         }
+         // The apps rise into place on the first launch after the TV starts, and only then. Setting
+@@ -559,6 +608,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
          int next = (prefs.getInt("index", -1) + 1) % wallpapers.size();
          prefs.edit().putInt("index", next).apply();
          wallShownAt = android.os.SystemClock.elapsedRealtime();
@@ -178,7 +416,7 @@ index 3cd391e..f315578 100644
          final File file = wallpapers.get(next);
          // On a cold start, name the place straight away: waiting for the decode showed the app's name
          // at full size and shrank it a moment later. After that the name changes with the picture,
-@@ -586,10 +611,32 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+@@ -586,10 +636,32 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
          @Override
          public void run() {
              if (wallpapers.size() >= 2) showNextWallpaper(true);
@@ -212,7 +450,7 @@ index 3cd391e..f315578 100644
      /** Fetches the week's places in the background, then switches the rotation to them. */
      private void refreshPlacesIfDue() {
          if (!placesMode || placesRefreshRunning || !PlaceWallpapers.due(this)) return;
-@@ -620,9 +667,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+@@ -620,9 +692,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
          refreshPlacesIfDue();
          handler.removeCallbacks(wallTick);
          if (wallpapers.size() < 2 || wallpaperIntervalMs <= 0) return;
@@ -229,15 +467,193 @@ index 3cd391e..f315578 100644
          handler.postDelayed(wallTick, Math.max(RETURN_SETTLE_MS, wallpaperIntervalMs - waited));
      }
  
-@@ -669,6 +722,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+@@ -667,8 +745,22 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+         tilesReady = false;
+         promptsPaused = false;
          resuming = true;
++        if (allApps) {
++            allApps = false;
++            // The prayer card comes back through updatePrayer() below, if there are times to show.
++            if (adapter != null && adapter.getItemCount() > 0) {
++                lastFocused = Math.min(lastFocused % COLUMNS, adapter.getItemCount() - 1);
++                lastFocusedKey = adapter.keyAt(lastFocused);
++            }
++            if (grid != null) {
++                parkDock();
++                applyRestRows();
++                grid.scrollToPosition(0);
++            }
++        }
          reloadApps(true);
          updateShamsiDate();
 +        updatePrayer();
          updateWifiLabel();
          updateInputsButton();
          startWallpaperRotation();
-@@ -1277,8 +1331,22 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+@@ -798,7 +890,36 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+ 
+     @Override
+     public void onBackPressed() {
+-        // Home screen: Back goes nowhere.
++        // Home screen: Back goes nowhere, except out of the all-apps view to the resting one.
++        if (allApps) setAllApps(false, Math.max(0, Math.min(lastFocused % COLUMNS, adapter.getItemCount() - 1)));
++    }
++
++    /**
++     * Switches between the resting view and the all-apps view, then focuses {@code focusPos}. The
++     * prayer card and place shelf go in the all-apps view; the grid's top padding (parkDock) puts
++     * the dock at the top there and at the bottom at rest.
++     */
++    private void setAllApps(boolean on, int focusPos) {
++        if (allApps == on) {
++            if (focusPos >= 0) focusTile(focusPos);
++            return;
++        }
++        allApps = on;
++        if (on) {
++            hideShelf();
++            if (prayerArea != null) prayerArea.setVisibility(View.GONE);
++        } else {
++            updatePrayer();   // shows the card again when there are times to show
++        }
++        parkDock();
++        updateTopFade();
++        applyRestRows();
++        grid.scrollToPosition(0);
++        grid.requestLayout();
++        if (focusPos >= 0) {
++            final int pos = focusPos;
++            grid.post(() -> focusTile(pos));
++        }
+     }
+ 
+     // ---- glass highlight -------------------------------------------------------------------------
+@@ -859,7 +980,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+                 if (reducedMotion) grid.scrollBy(0, dy);
+                 else grid.smoothScrollBy(0, dy);
+             }
+-            showHero(position, scroll ? r.top - dy : r.top);
++            if (allApps) hideShelf();
++            else showHero(position, scroll ? r.top - dy : r.top);
+         } else {
+             // Below the dock there is no shelf, but the glow still takes this app's colour, so every
+             // tile lights the room the same way the dock does.
+@@ -909,10 +1031,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+             showAmbient(color);
+             heroShown = true;
+         } else if (changed) {
+-            heroShelf.animate().alpha(0f).translationX(-12 * density).setDuration(120).withEndAction(() -> {
++            heroShelf.animate().alpha(0f).translationX(12 * density).setDuration(120).withEndAction(() -> {
+                 setHeroText(label, where, desc);
+                 heroShelf.setY(y);
+-                heroShelf.setTranslationX(12 * density);
++                heroShelf.setTranslationX(-12 * density);
+                 heroShelf.animate().alpha(1f).translationX(0f).setDuration(200).start();
+             }).start();
+             showAmbient(color);
+@@ -983,6 +1105,71 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+         glider.moveTo(l, t, l + pill.getWidth(), t + pill.getHeight(), pill.getHeight() / 2f);
+     }
+ 
++    // ---- top-right circles (tvOS style) ----------------------------------------------------------
++
++    private TextView wifiCaption;
++
++    /** Puts the button's only drawable in the middle of its 42dp circle. */
++    private void centerIcon(TextView b) {
++        android.graphics.drawable.Drawable icon = b.getCompoundDrawablesRelative()[0];
++        int w = b.getLayoutParams() != null && b.getLayoutParams().width > 0 ? b.getLayoutParams().width : (int) (42 * density);
++        int iw = icon != null ? icon.getIntrinsicWidth() : 0;
++        b.setPaddingRelative(Math.max(0, (w - iw) / 2), b.getPaddingTop(), 0, b.getPaddingBottom());
++    }
++
++    /** Selected: a solid white circle, slightly larger, with a dark icon. At rest: the glass circle and a white icon. */
++    private void appleFocus(TextView b, boolean has, android.graphics.drawable.Drawable glassBg) {
++        if (has) {
++            android.graphics.drawable.GradientDrawable white = new android.graphics.drawable.GradientDrawable();
++            white.setShape(android.graphics.drawable.GradientDrawable.OVAL);
++            white.setColor(0xFFFFFFFF);
++            b.setBackground(white);
++            b.setCompoundDrawableTintList(android.content.res.ColorStateList.valueOf(0xFF1C1C20));
++        } else {
++            b.setBackground(glassBg);
++            b.setCompoundDrawableTintList(android.content.res.ColorStateList.valueOf(0xFFFFFFFF));
++        }
++        float s = has ? 1.08f : 1f;
++        b.animate().scaleX(s).scaleY(s).setDuration(reducedMotion ? 80 : 160).start();
++        if (b.getId() == R.id.btnWifi) showWifiCaption(has);
++    }
++
++    /** The network name under the Wi-Fi circle; shown while that circle is selected. */
++    private TextView wifiCaption() {
++        if (wifiCaption == null) {
++            wifiCaption = new TextView(this);
++            wifiCaption.setTypeface(androidx.core.content.res.ResourcesCompat.getFont(this, R.font.outfit));
++            wifiCaption.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f);
++            wifiCaption.setFontVariationSettings("'wght' 500");
++            wifiCaption.setTextColor(0xEBFFFFFF);
++            wifiCaption.setSingleLine(true);
++            wifiCaption.setMaxWidth((int) (220 * density));
++            wifiCaption.setAlpha(0f);
++            wifiCaption.setFocusable(false);
++            ((ViewGroup) findViewById(R.id.root)).addView(wifiCaption, new FrameLayout.LayoutParams(
++                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
++        }
++        return wifiCaption;
++    }
++
++    private final int[] captionAt = new int[2], captionRootAt = new int[2];
++
++    private void showWifiCaption(boolean show) {
++        TextView c = wifiCaption();
++        if (show) {
++            c.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
++            View rootView = findViewById(R.id.root);
++            btnWifi.getLocationInWindow(captionAt);
++            rootView.getLocationInWindow(captionRootAt);
++            float cx = captionAt[0] - captionRootAt[0] + btnWifi.getWidth() / 2f;
++            float right = rootView.getWidth() - 8 * density;
++            c.setX(Math.min(cx - c.getMeasuredWidth() / 2f, right - c.getMeasuredWidth()));
++            c.setY(captionAt[1] - captionRootAt[1] + btnWifi.getHeight() + 10 * density);
++        }
++        c.animate().cancel();
++        c.animate().alpha(show ? 1f : 0f).setDuration(show ? 160 : 100).start();
++    }
++
+     /** The shelf's two lines. An empty description takes no room, so the title keeps its place. */
+     private void setHeroText(String title, String where, String desc) {
+         heroName.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, titleSizeSp(title));
+@@ -1078,6 +1265,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+     /** Turns the top fade on while any row reaches into its band, with room for a focused tile's zoom. */
+     private void updateTopFade() {
+         if (gridWrap == null) return;
++        if (allApps) {
++            gridWrap.setFadeStrength(0f);   // the dock sits at the top edge in this view
++            return;
++        }
+         float band = 56 * density + 24 * density;
+         boolean inBand = false;
+         for (int i = 0; i < grid.getChildCount() && !inBand; i++) {
+@@ -1095,10 +1286,17 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+     private boolean parkDock() {
+         int h = grid.getHeight();
+         if (h <= 0) return false;
++        if (allApps) {
++            // Dock at the top with the tray's glass and the zoom clear of the edge; the rest below it.
++            int top = (int) (10 * density);
++            if (grid.getPaddingTop() == top) return true;
++            grid.setPadding(grid.getPaddingLeft(), top, grid.getPaddingRight(), grid.getPaddingBottom());
++            return false;
++        }
+         // Item height follows the tile size, which follows the column count (AppAdapter.tileWidthPx).
+         int inner = grid.getWidth() - grid.getPaddingLeft() - grid.getPaddingRight();
+         int itemH = AppAdapter.itemHeightPx(AppAdapter.tileHeightPx(AppAdapter.tileWidthPx(inner, COLUMNS, density)), density);
+-        int dockRow = itemH + (int) ((6 + 12) * density);   // item height plus DockDecoration offsets
++        int dockRow = itemH + (int) ((6 + DockDecoration.BOTTOM_GAP_DP) * density);   // item height plus DockDecoration offsets
+         int want = Math.max(0, h - dockRow - itemH * rowsBelowDockSetting - (int) (30 * density));
+         if (grid.getPaddingTop() == want) return true;
+         grid.setPadding(grid.getPaddingLeft(), want, grid.getPaddingRight(), grid.getPaddingBottom());
+@@ -1277,8 +1475,22 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                  closeMenu(true);
              }, R.drawable.ic_move, getString(R.string.tile_move), -1, () -> startMove(key));
          }
@@ -260,10 +676,38 @@ index 3cd391e..f315578 100644
          panel.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
          int width = Math.max((int) (190 * density), panel.getMeasuredWidth());
          // Under the app when there is room; over it in the dock, which sits near the bottom.
-@@ -1290,6 +1358,75 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+@@ -1290,12 +1502,110 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
          return true;
      }
  
++    /** The veil on tiles that are not focused: about 30% darker. One drawable per tile (a drawable has one owner). */
++    private static final int TILE_VEIL = 0x4D05070C;
++
++    /** At rest only the dock shows; the rows under it appear in the all-apps view (or while carrying an app). */
++    private void restRowVisibility(View item) {
++        int pos = grid.getChildAdapterPosition(item);
++        float a = (pos >= COLUMNS && !allApps) ? 0f : 1f;
++        if (item.getAlpha() != a) item.setAlpha(a);
++    }
++
++    private void applyRestRows() {
++        if (grid == null) return;
++        for (int i = 0; i < grid.getChildCount(); i++) restRowVisibility(grid.getChildAt(i));
++    }
++
++    private void applyTileDim() {
++        if (grid == null) return;
++        for (int i = 0; i < grid.getChildCount(); i++) dimTile(grid.getChildAt(i).findViewById(R.id.card));
++    }
++
++    private void dimTile(View card) {
++        if (card == null) return;
++        boolean veil = grid.hasFocus() && !card.isFocused() && movingPos < 0;
++        boolean veiled = card.getForeground() != null;
++        if (veil && !veiled) card.setForeground(new android.graphics.drawable.ColorDrawable(TILE_VEIL));
++        else if (!veil && veiled) card.setForeground(null);
++    }
++
 +    /** Most hidden apps listed at once: the menu does not scroll, and eight rows fit any screen. */
 +    private static final int HIDDEN_LIST_MAX = 8;
 +
@@ -336,15 +780,59 @@ index 3cd391e..f315578 100644
      /** Picks the app up: it wiggles, the arrows carry it, and OK or Back puts it down. */
      private void startMove(String key) {
          int pos = adapter.positionOf(key);
-@@ -1458,6 +1595,83 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+         RecyclerView.ViewHolder vh = grid.findViewHolderForAdapterPosition(pos);
+         if (vh == null || !adapter.canMove(pos)) return;
+         movingPos = pos;
++        applyTileDim();   // no veils while carrying an app; back when it is put down
+         movingCard = vh.itemView.findViewById(R.id.card);
+         movingCard.requestFocus();
+         glider.setPaneHidden(true);
+@@ -1321,6 +1631,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+         if (movingCard != null) movingCard.animate().rotation(0f).setDuration(120).start();
+         movingCard = null;
+         movingPos = -1;
++        applyTileDim();   // no veils while carrying an app; back when it is put down
+         glider.setPaneHidden(false);
+         // Back to no item animations once the last slide has finished.
+         RecyclerView.ItemAnimator slide = grid.getItemAnimator();
+@@ -1345,6 +1656,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+                 break;
+             case KeyEvent.KEYCODE_DPAD_DOWN:
+                 if (movingPos / COLUMNS < last / COLUMNS) to = Math.min(movingPos + COLUMNS, last);
++                if (to != movingPos && !allApps) setAllApps(true, -1);   // view only; the move keeps focus
+                 break;
+             default:
+                 return;
+@@ -1410,12 +1722,20 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+             return position % COLUMNS == COLUMNS - 1 || position == count - 1;
+         }
+         if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+-            if (position < COLUMNS) return false;          // dock row: let focus move to the top bar
++            if (position < COLUMNS) {
++                if (!allApps) return false;                // resting view: focus moves to the top bar
++                setAllApps(false, position);               // all-apps view: back to rest, same app
++                return true;
++            }
+             target = position - COLUMNS;
+         } else {
+             int lastRowStart = ((count - 1) / COLUMNS) * COLUMNS;
+             if (position >= lastRowStart) return true;     // already on the last row: stay put
+             target = Math.min(position + COLUMNS, count - 1);
++            if (!allApps && position < COLUMNS) {
++                setAllApps(true, target);                  // Down from the dock opens the all-apps view
++                return true;
++            }
+         }
+         focusTile(target);
+         return true;
+@@ -1458,6 +1778,90 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
  
      // ---- top bar ---------------------------------------------------------------------------------
  
 +    /** Prayer line and Hijri date: fetches the month in the background if needed, then redraws. */
 +    private void updatePrayer() {
 +        if (prayer == null || !prayer.enabled) {
-+            if (prayerRow != null) prayerRow.setVisibility(View.GONE);
-+            if (prayerCountdown != null) prayerCountdown.setVisibility(View.GONE);
++            if (prayerArea != null) prayerArea.setVisibility(View.GONE);
 +            if (hijriDate != null) hijriDate.setVisibility(View.GONE);
 +            return;
 +        }
@@ -352,33 +840,33 @@ index 3cd391e..f315578 100644
 +        showPrayer();
 +    }
 +
-+    /** Five labels with a centred dot in each gap; the gaps share the spare width, so the row is justified. */
++    /** Five columns, each a large time over a small name; the columns share the card's width evenly. */
 +    private void buildPrayerRow() {
 +        prayerRow.removeAllViews();
-+        android.graphics.Typeface outfit = androidx.core.content.res.ResourcesCompat.getFont(this, R.font.outfit);
-+        prayerFont = outfit;
++        prayerFont = androidx.core.content.res.ResourcesCompat.getFont(this, R.font.outfit);
 +        for (int i = 0; i < 5; i++) {
-+            if (i > 0) {
-+                TextView dot = prayerText(outfit, 0xB3FFFFFF);
-+                dot.setText("\u2022");
-+                dot.setGravity(android.view.Gravity.CENTER);
-+                prayerRow.addView(dot, new android.widget.LinearLayout.LayoutParams(0,
-+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-+            }
-+            prayerLabels[i] = prayerText(outfit, PRAYER_COLOR);
-+            prayerRow.addView(prayerLabels[i], new android.widget.LinearLayout.LayoutParams(
-+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
++            LinearLayout col = new LinearLayout(this);
++            col.setOrientation(LinearLayout.VERTICAL);
++            prayerTimes[i] = prayerText(22f, "'wght' 500", 0f);
++            prayerNames[i] = prayerText(11f, "'wght' 500", 0.12f);
++            prayerNames[i].setAllCaps(true);
++            col.addView(prayerTimes[i]);
++            LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(
++                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
++            nameLp.topMargin = (int) (5 * density);
++            col.addView(prayerNames[i], nameLp);
++            prayerRow.addView(col, new LinearLayout.LayoutParams(0,
++                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 +        }
++        prayerTitle.setText("Prayer  \u00B7  " + prayer.zone);
 +    }
 +
-+    private TextView prayerText(android.graphics.Typeface font, int color) {
++    private TextView prayerText(float sp, String weight, float spacing) {
 +        TextView t = new TextView(this);
-+        t.setTypeface(font);
-+        t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f);
-+        t.setTextColor(color);
-+        t.setLetterSpacing(0.02f);
-+        // Outfit is a variable font whose default is thin; a medium weight reads from across the room.
-+        t.setFontVariationSettings(PRAYER_WEIGHT);
++        t.setTypeface(prayerFont);
++        t.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, sp);
++        t.setFontVariationSettings(weight);
++        t.setLetterSpacing(spacing);
 +        t.setIncludeFontPadding(false);
 +        t.setSingleLine(true);
 +        t.setFocusable(false);
@@ -393,24 +881,32 @@ index 3cd391e..f315578 100644
 +        if (d != null) {
 +            for (int i = 0; i < 5; i++) {
 +                boolean next = i == d.next;
-+                prayerLabels[i].setText(d.labels[i]);
-+                prayerLabels[i].setTextColor(next ? 0xFFFFFFFF : PRAYER_COLOR);
-+                prayerLabels[i].setFontVariationSettings(next ? PRAYER_NEXT_WEIGHT : PRAYER_WEIGHT);
++                // "5:49" large, "am" smaller beside it.
++                android.text.SpannableStringBuilder t = new android.text.SpannableStringBuilder(d.times[i]);
++                int start = t.length();
++                t.append(' ').append(d.ampm[i]);
++                t.setSpan(new android.text.style.RelativeSizeSpan(0.55f), start, t.length(),
++                        android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
++                prayerTimes[i].setText(t);
++                prayerTimes[i].setTextColor(next ? PRAYER_NEXT_COLOR : PRAYER_TIME_COLOR);
++                prayerTimes[i].setFontVariationSettings(next ? "'wght' 650" : "'wght' 500");
++                prayerNames[i].setText(d.names[i]);
++                prayerNames[i].setTextColor(next ? PRAYER_NEXT_COLOR : PRAYER_NAME_COLOR);
++                prayerNames[i].setFontVariationSettings(next ? "'wght' 650" : "'wght' 500");
 +            }
-+            prayerRow.setVisibility(View.VISIBLE);
 +            if (d.countdown != null) {
 +                prayerCountdown.setText(d.countdown);
 +                prayerCountdown.setVisibility(View.VISIBLE);
 +            } else {
 +                prayerCountdown.setVisibility(View.GONE);
 +            }
++            prayerArea.setVisibility(allApps ? View.GONE : View.VISIBLE);
 +        } else {
-+            prayerRow.setVisibility(View.GONE);
-+            prayerCountdown.setVisibility(View.GONE);
++            prayerArea.setVisibility(View.GONE);
 +        }
 +        String hijri = prayer.hijriToday(now);
 +        if (hijri != null) {
-+            hijriDate.setText("  \u00B7  " + hijri);
++            hijriDate.setText(hijri);
 +            hijriDate.setVisibility(View.VISIBLE);
 +        } else {
 +            hijriDate.setVisibility(View.GONE);
@@ -420,12 +916,39 @@ index 3cd391e..f315578 100644
      private void updateShamsiDate() {
          if (shamsi) shamsiDate.setText(Shamsi.today());
      }
+@@ -1510,17 +1914,22 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+             // The pill has a maximum width and ellipsizes at the end, which would cut the badge off after
+             // a long network name, so shorten the name to whatever room the badge leaves. The total paddings
+             // include the Wi-Fi icon.
+-            TextPaint paint = btnWifi.getPaint();
+-            float room = btnWifi.getMaxWidth() - btnWifi.getTotalPaddingStart() - btnWifi.getTotalPaddingEnd()
++            TextPaint paint = wifiCaption().getPaint();
++            float room = wifiCaption().getMaxWidth()
+                     - span.getSize(paint, badge, 0, badge.length(), null) - paint.measureText(" ") - 2 * density;
+             text = TextUtils.ellipsize(text, paint, Math.max(0, room), TextUtils.TruncateAt.END).toString();
+             SpannableString label = new SpannableString(text + " " + badge);
+             label.setSpan(span, text.length() + 1, label.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+-            btnWifi.setText(label);
++            wifiCaption().setText(label);
+         } else {
+-            btnWifi.setText(text);
++            wifiCaption().setText(text);
+         }
++        btnWifi.setText("");
++        btnWifi.setContentDescription(text);
+         btnWifi.setCompoundDrawablesRelativeWithIntrinsicBounds(icon, 0, 0, 0);
++        btnWifi.setCompoundDrawableTintList(android.content.res.ColorStateList.valueOf(
++                btnWifi.isFocused() ? 0xFF1C1C20 : 0xFFFFFFFF));
++        centerIcon(btnWifi);
+     }
+ 
+     /** The network pill opens the VPN app when one is configured and installed, otherwise Wi-Fi settings. */
 diff --git a/launcher/app/src/main/java/com/gathin/tvhome/PrayerTimes.java b/launcher/app/src/main/java/com/gathin/tvhome/PrayerTimes.java
 new file mode 100644
-index 0000000..8a27be8
+index 0000000..08e5304
 --- /dev/null
 +++ b/launcher/app/src/main/java/com/gathin/tvhome/PrayerTimes.java
-@@ -0,0 +1,401 @@
+@@ -0,0 +1,402 @@
 +package com.gathin.tvhome;
 +
 +import android.content.Context;
@@ -517,17 +1040,18 @@ index 0000000..8a27be8
 +
 +    // ---- what the screen shows -------------------------------------------------------------------
 +
-+    /** What the screen shows: five "Name time" labels, which one is next, and the countdown. */
++    /** What the card shows: five times ("5:49" + "am"), the names, which one is next, and the countdown. */
 +    static final class Display {
-+        final String[] labels = new String[5];
++        final String[] names = new String[5];
++        final String[] times = new String[5];
++        final String[] ampm = new String[5];
 +        int next = -1;
 +        String countdown;
 +    }
 +
 +    /**
-+     * The five prayers as "Subuh 5:49 am", the next one in capitals ("ASAR 4:19 PM"), and the
-+     * countdown "ASAR in 1h 5min". After Isyak it shows tomorrow's times with Subuh next. Null when
-+     * today's times are not known yet.
++     * Today's five prayers (after Isyak: tomorrow's, with Subuh next) and the countdown "Isyak in 40min".
++     * Null when today's times are not known yet.
 +     */
 +    Display display(long now) {
 +        Calendar c = Calendar.getInstance(MYT);
@@ -550,18 +1074,18 @@ index 0000000..8a27be8
 +                next = 0;
 +            }
 +        }
-+        SimpleDateFormat fmt = new SimpleDateFormat("h:mm a", Locale.ENGLISH);
-+        fmt.setTimeZone(MYT);
++        SimpleDateFormat hm = new SimpleDateFormat("h:mm", Locale.ENGLISH);
++        SimpleDateFormat ap = new SimpleDateFormat("a", Locale.ENGLISH);
++        hm.setTimeZone(MYT);
++        ap.setTimeZone(MYT);
 +        Display d = new Display();
 +        d.next = next;
 +        for (int i = 0; i < 5; i++) {
-+            String label = NAMES[i] + " " + fmt.format(shown.times[i]);
-+            d.labels[i] = i == next ? label.toUpperCase(Locale.ENGLISH) : label.toLowerCase(Locale.ENGLISH)
-+                    .replaceFirst("^.", NAMES[i].substring(0, 1));
++            d.names[i] = NAMES[i].toUpperCase(Locale.ENGLISH);
++            d.times[i] = hm.format(shown.times[i]);
++            d.ampm[i] = ap.format(shown.times[i]).toLowerCase(Locale.ENGLISH);
 +        }
-+        if (next >= 0) {
-+            d.countdown = NAMES[next].toUpperCase(Locale.ENGLISH) + " in " + countdown(shown.times[next] - now);
-+        }
++        if (next >= 0) d.countdown = NAMES[next] + " in " + countdown(shown.times[next] - now);
 +        return d;
 +    }
 +
@@ -857,105 +1381,278 @@ index 0000000..ec12b58
 +        android:strokeLineJoin="round" android:strokeLineCap="round"
 +        android:pathData="M2.5,12C4.5,7.8 8,5.5 12,5.5C16,5.5 19.5,7.8 21.5,12C19.5,16.2 16,18.5 12,18.5C8,18.5 4.5,16.2 2.5,12Z M12,9A3,3 0 1,1 12,15A3,3 0 1,1 12,9Z M4,4L20,20" />
 +</vector>
+diff --git a/launcher/app/src/main/res/drawable/prayer_card.xml b/launcher/app/src/main/res/drawable/prayer_card.xml
+new file mode 100644
+index 0000000..c586a79
+--- /dev/null
++++ b/launcher/app/src/main/res/drawable/prayer_card.xml
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Prayer card: a light smoky veil with a thin rim, lighter than the popup glass so the picture shows through. -->
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <solid android:color="#4D141416" />
++    <stroke android:width="1dp" android:color="#2EFFFFFF" />
++    <corners android:radius="18dp" />
++</shape>
 diff --git a/launcher/app/src/main/res/layout/activity_main.xml b/launcher/app/src/main/res/layout/activity_main.xml
-index 75d357d..fda7ae4 100644
+index 75d357d..e058b4d 100644
 --- a/launcher/app/src/main/res/layout/activity_main.xml
 +++ b/launcher/app/src/main/res/layout/activity_main.xml
-@@ -161,22 +161,47 @@
+@@ -19,13 +19,18 @@
+         android:id="@+id/heroShelf"
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+-        android:layout_marginStart="55dp"
++        android:layout_gravity="end|top"
++        android:layout_marginEnd="56dp"
++        android:gravity="end"
+         android:orientation="vertical"
+         android:alpha="0">
+ 
+         <TextView
+             android:id="@+id/heroName"
+             android:layout_width="wrap_content"
++            android:layout_gravity="end"
++            android:gravity="end"
++            android:textAlignment="viewEnd"
+             android:layout_height="wrap_content"
+             android:textColor="#FFFFFFFF"
+             android:textSize="40sp"
+@@ -41,6 +46,9 @@
+         <TextView
+             android:id="@+id/heroWhere"
+             android:layout_width="wrap_content"
++            android:layout_gravity="end"
++            android:gravity="end"
++            android:textAlignment="viewEnd"
+             android:layout_height="wrap_content"
+             android:layout_marginTop="-1.5dp"
+             android:textColor="#CCFFFFFF"
+@@ -56,6 +64,9 @@
+         <TextView
+             android:id="@+id/heroDesc"
+             android:layout_width="wrap_content"
++            android:layout_gravity="end"
++            android:gravity="end"
++            android:textAlignment="viewEnd"
+             android:layout_height="wrap_content"
+             android:layout_marginTop="9.5dp"
+             android:textColor="#B3FFFFFF"
+@@ -114,20 +125,20 @@
+                         android:letterSpacing="-0.04"
+                         android:includeFontPadding="false" />
+ 
+-                    <!-- AM/PM over the date, both starting at the same line: the date on the digits'
+-                         baseline, AM/PM resting halfway between the top of the digits and the date (placed in
+-                         code). -->
+-                    <FrameLayout
++                    <!-- AM/PM at the top of the digits, a thin divider, then three lines:
++                         day / date / Hijri date. -->
++                    <LinearLayout
+                         android:layout_width="0dp"
+                         android:layout_weight="1"
+                         android:layout_height="match_parent"
+-                        android:layout_marginStart="8dp">
++                        android:layout_marginStart="6dp"
++                        android:orientation="horizontal">
+ 
+                         <TextClock
+                             android:id="@+id/ampm"
+                             android:layout_width="wrap_content"
+                             android:layout_height="wrap_content"
+-                            android:layout_gravity="top|start"
++                            android:layout_gravity="top"
+                             android:includeFontPadding="false"
+                             android:format12Hour="a"
+                             android:format24Hour=""
+@@ -138,11 +149,21 @@
+                             android:letterSpacing="0.08"
+                             android:textAllCaps="true" />
+ 
++                        <View
++                            android:id="@+id/dateDivider"
++                            android:layout_width="1dp"
++                            android:layout_height="46dp"
++                            android:layout_gravity="center_vertical"
++                            android:layout_marginStart="14dp"
++                            android:layout_marginEnd="14dp"
++                            android:background="#47FFFFFF" />
++
+                         <LinearLayout
+                             android:id="@+id/dateBlock"
+-                            android:layout_width="match_parent"
++                            android:layout_width="0dp"
++                            android:layout_weight="1"
+                             android:layout_height="wrap_content"
+-                            android:layout_gravity="bottom"
++                            android:layout_gravity="center_vertical"
+                             android:orientation="vertical">
+ 
+                             <!-- Shamsi date ("27 Mehr 1405"), shown when shamsi_date is on. -->
+@@ -161,24 +182,58 @@
                                  android:includeFontPadding="false"
                                  android:visibility="gone" />
  
--                            <TextClock
--                                android:id="@+id/date"
--                                android:gravity="left"
-+                            <!-- Date, then the Hijri date beside it ("25 OCT 2026  ·  14 JAMADILAWAL 1448"). -->
-+                            <LinearLayout
++                            <TextClock
++                                android:id="@+id/dayName"
++                                android:gravity="left"
++                                android:layout_width="match_parent"
++                                android:layout_height="wrap_content"
++                                android:singleLine="true"
++                                android:includeFontPadding="false"
++                                android:format12Hour="EEEE"
++                                android:format24Hour="EEEE"
++                                android:textColor="#EBFFFFFF"
++                                android:textSize="14sp"
++                                android:fontFamily="@font/outfit"
++                                android:fontVariationSettings="'wght' 600"
++                                android:letterSpacing="0.14"
++                                android:textAllCaps="true" />
++
+                             <TextClock
+                                 android:id="@+id/date"
+                                 android:gravity="left"
                                  android:layout_width="match_parent"
                                  android:layout_height="wrap_content"
--                                android:singleLine="true"
++                                android:layout_marginTop="5dp"
+                                 android:singleLine="true"
 -                                android:ellipsize="end"
--                                android:includeFontPadding="false"
--                                android:format12Hour="@string/date_format"
--                                android:format24Hour="@string/date_format"
+                                 android:includeFontPadding="false"
+                                 android:format12Hour="@string/date_format"
+                                 android:format24Hour="@string/date_format"
 -                                android:textColor="#A6FFFFFF"
--                                android:textSize="14sp"
--                                android:fontFamily="@font/outfit"
--                                android:fontVariationSettings="'wght' 400"
--                                android:letterSpacing="0.14"
--                                android:textAllCaps="true" />
-+                                android:orientation="horizontal"
-+                                android:baselineAligned="true">
++                                android:textColor="#B3FFFFFF"
+                                 android:textSize="14sp"
+                                 android:fontFamily="@font/outfit"
+                                 android:fontVariationSettings="'wght' 400"
+                                 android:letterSpacing="0.14"
+                                 android:textAllCaps="true" />
 +
-+                                <TextClock
-+                                    android:id="@+id/date"
-+                                    android:gravity="left"
-+                                    android:layout_width="wrap_content"
-+                                    android:layout_height="wrap_content"
-+                                    android:singleLine="true"
-+                                    android:includeFontPadding="false"
-+                                    android:format12Hour="@string/date_format"
-+                                    android:format24Hour="@string/date_format"
-+                                    android:textColor="#A6FFFFFF"
-+                                    android:textSize="14sp"
-+                                    android:fontFamily="@font/outfit"
-+                                    android:fontVariationSettings="'wght' 400"
-+                                    android:letterSpacing="0.14"
-+                                    android:textAllCaps="true" />
-+
-+                                <TextView
-+                                    android:id="@+id/hijriDate"
-+                                    android:gravity="left"
-+                                    android:layout_width="0dp"
-+                                    android:layout_weight="1"
-+                                    android:layout_height="wrap_content"
-+                                    android:singleLine="true"
-+                                    android:ellipsize="end"
-+                                    android:includeFontPadding="false"
-+                                    android:focusable="false"
-+                                    android:textColor="#A6FFFFFF"
-+                                    android:textSize="14sp"
-+                                    android:fontFamily="@font/outfit"
-+                                    android:fontVariationSettings="'wght' 400"
-+                                    android:letterSpacing="0.14"
-+                                    android:textAllCaps="true"
-+                                    android:visibility="gone" />
-+                            </LinearLayout>
++                            <TextView
++                                android:id="@+id/hijriDate"
++                                android:gravity="left"
++                                android:layout_width="match_parent"
++                                android:layout_height="wrap_content"
++                                android:layout_marginTop="5dp"
++                                android:singleLine="true"
++                                android:ellipsize="end"
++                                android:includeFontPadding="false"
++                                android:focusable="false"
++                                android:textColor="#B3FFFFFF"
++                                android:textSize="14sp"
++                                android:fontFamily="@font/outfit"
++                                android:fontVariationSettings="'wght' 400"
++                                android:letterSpacing="0.14"
++                                android:textAllCaps="true"
++                                android:visibility="gone" />
                          </LinearLayout>
-                     </FrameLayout>
+-                    </FrameLayout>
++                    </LinearLayout>
                  </LinearLayout>
-@@ -221,6 +246,36 @@
+             </LinearLayout>
+ 
+@@ -194,17 +249,21 @@
+                 <TextView
+                     android:id="@+id/btnInputs"
+                     style="@style/TopMenuButton"
+-                    android:text="@string/inputs"
++                    android:layout_width="42dp"
++                    android:paddingEnd="0dp"
++                    android:drawablePadding="0dp"
++                    android:contentDescription="@string/inputs"
+                     android:drawableStart="@drawable/ic_input"
+                     android:nextFocusDown="@+id/grid" />
+ 
+                 <TextView
+                     android:id="@+id/btnWifi"
+                     style="@style/TopMenuButton"
+-                    android:maxWidth="180dp"
++                    android:layout_width="42dp"
++                    android:paddingEnd="0dp"
++                    android:drawablePadding="0dp"
+                     android:singleLine="true"
+-                    android:ellipsize="end"
+-                    android:text="@string/wifi"
++                    android:contentDescription="@string/wifi"
+                     android:drawableStart="@drawable/ic_wifi"
+                     android:nextFocusDown="@+id/grid" />
+ 
+@@ -221,6 +280,79 @@
              </LinearLayout>
          </RelativeLayout>
  
-+        <!-- Prayer times (JAKIM), read-only: nothing here is focusable, so remote navigation is unchanged.
-+             The five prayers spread edge to edge with a dot centred in each gap (filled in code),
-+             and the countdown to the next prayer on its own line underneath. -->
++        <!-- Prayer times (JAKIM) as a glass card on the left half, read-only: nothing in it is focusable,
++             so remote navigation is unchanged. Header: zone and countdown; below: five columns (filled in code). -->
 +        <LinearLayout
-+            android:id="@+id/prayerRow"
++            android:id="@+id/prayerArea"
 +            android:layout_width="match_parent"
 +            android:layout_height="wrap_content"
-+            android:layout_marginTop="12dp"
++            android:layout_marginTop="14dp"
 +            android:orientation="horizontal"
-+            android:baselineAligned="true"
 +            android:focusable="false"
 +            android:descendantFocusability="blocksDescendants"
-+            android:visibility="gone" />
++            android:visibility="gone">
 +
-+        <TextView
-+            android:id="@+id/prayerCountdown"
-+            android:gravity="left"
-+            android:layout_width="match_parent"
-+            android:layout_height="wrap_content"
-+            android:layout_marginTop="6dp"
-+            android:singleLine="true"
-+            android:includeFontPadding="false"
-+            android:focusable="false"
-+            android:textColor="#FFFFFFFF"
-+            android:textSize="15sp"
-+            android:fontFamily="@font/outfit"
-+            android:fontVariationSettings="'wght' 650"
-+            android:letterSpacing="0.04"
-+            android:visibility="gone" />
++            <LinearLayout
++                android:id="@+id/prayerCard"
++                android:layout_width="0dp"
++                android:layout_weight="1"
++                android:layout_height="wrap_content"
++                android:layout_marginEnd="12dp"
++                android:orientation="vertical"
++                android:background="@drawable/prayer_card"
++                android:paddingStart="16dp"
++                android:paddingEnd="12dp"
++                android:paddingTop="12dp"
++                android:paddingBottom="12dp">
++
++                <LinearLayout
++                    android:layout_width="match_parent"
++                    android:layout_height="wrap_content"
++                    android:orientation="horizontal"
++                    android:baselineAligned="true">
++
++                    <TextView
++                        android:id="@+id/prayerTitle"
++                        android:layout_width="0dp"
++                        android:layout_weight="1"
++                        android:layout_height="wrap_content"
++                        android:singleLine="true"
++                        android:includeFontPadding="false"
++                        android:textColor="#B3FFFFFF"
++                        android:textSize="11sp"
++                        android:fontFamily="@font/outfit"
++                        android:fontVariationSettings="'wght' 500"
++                        android:letterSpacing="0.14"
++                        android:textAllCaps="true" />
++
++                    <TextView
++                        android:id="@+id/prayerCountdown"
++                        android:layout_width="wrap_content"
++                        android:layout_height="wrap_content"
++                        android:singleLine="true"
++                        android:includeFontPadding="false"
++                        android:textColor="#FFFFC94A"
++                        android:textSize="13sp"
++                        android:fontFamily="@font/outfit"
++                        android:fontVariationSettings="'wght' 600"
++                        android:letterSpacing="0.02" />
++                </LinearLayout>
++
++                <LinearLayout
++                    android:id="@+id/prayerRow"
++                    android:layout_width="match_parent"
++                    android:layout_height="wrap_content"
++                    android:layout_marginTop="12dp"
++                    android:orientation="horizontal" />
++            </LinearLayout>
++
++            <!-- Keeps the card to the left half, like the picture. -->
++            <Space
++                android:layout_width="0dp"
++                android:layout_weight="1"
++                android:layout_height="0dp" />
++        </LinearLayout>
 +
          <!-- The wrapper clips at the grid's edge; the grid itself must not clip so scaled tiles can overflow their cells. -->
          <com.gathin.tvhome.FadeTopFrame
