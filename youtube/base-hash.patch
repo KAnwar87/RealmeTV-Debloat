@@ -1,0 +1,13 @@
+diff --git a/patcher.py b/patcher.py
+index 7638c5e..ee4db90 100644
+--- a/patcher.py
++++ b/patcher.py
+@@ -12,7 +12,7 @@ import sys
+ import xml.etree.ElementTree as ET
+ import zipfile
+ 
+-BASE_HASH = '418826127ad7a1c0ebfc607d841f8998c91d2b660478e9959b3c70a705a07f3f'
++BASE_HASH = 'ba1ce4398a9e26aeff739a17b908b7bb0273555b6cd6f74bffb73941551df616'
+ ARM_HASH = '5ca175e0045ecc7e4aa567de4bebe2c83723dcb8833c4dd9b67868eeef2cc4da'
+ PACKAGE = 'local.x90h.youtube.tv.experimental'
+ ROOT = Path(__file__).resolve().parent

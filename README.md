@@ -25,6 +25,7 @@ Changhong-made "AI PONT" platform. It is not a general tool, and it has only bee
 - **Ad-blocking DNS** (AdGuard) via Android's Private DNS.
 - **Glass TV launcher** as the Home screen, with a patch adding JAKIM prayer times, the Hijri date,
   hourly wallpapers and hide/show apps.
+- **YouTube without ads** (testing): a patched build of [pearlxcore/YouTube-TV-NoAds](https://github.com/pearlxcore/YouTube-TV-NoAds), installed beside the stock app. See [`docs/YouTube-NoAds.md`](docs/YouTube-NoAds.md).
 
 ## What's in this repo
 
@@ -36,6 +37,8 @@ Changhong-made "AI PONT" platform. It is not a general tool, and it has only bee
 | [`debloat/DO-NOT-DISABLE.md`](debloat/DO-NOT-DISABLE.md) | Packages that look like bloat but break things |
 | [`backup/`](backup/) | Package snapshots taken before and after |
 | [`launcher/`](launcher/) | `glass-tv-solat.patch`, build steps and licence |
+| [`docs/YouTube-NoAds.md`](docs/YouTube-NoAds.md) | Building the ad-free YouTube app for this TV, and the base.apk hash change |
+| [`youtube/base-hash.patch`](youtube/base-hash.patch) | The one-line `BASE_HASH` change for the APKMirror 5.30.320 base |
 
 APK files are attached to the **Releases** page, not committed.
 
@@ -71,6 +74,7 @@ Details, exact commands and undo steps are in the [notes](docs/RealmeTV-Debloat-
 - [amirulmzlan/android-tv-debloat](https://github.com/amirulmzlan/android-tv-debloat) — the original AI-agent playbook idea
 - [api.waktusolat.app](https://api.waktusolat.app/docs) and JAKIM [e-Solat](https://www.e-solat.gov.my) — prayer time data
 - Bing — daily wallpaper images, fetched by the TV itself
+- [pearlxcore/YouTube-TV-NoAds](https://github.com/pearlxcore/YouTube-TV-NoAds) — the YouTube ad-filter patches (MIT)
 
 ## Disclaimer
 
